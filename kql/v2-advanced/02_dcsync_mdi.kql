@@ -1,0 +1,19 @@
+// Title: DCSync detection via Microsoft Defender for Identity
+// MITRE: T1003.006 (DCSync)
+// Data sources: IdentityDirectoryEvents (requires Defender for Identity)
+// False positive notes: MSOL_ accounts (Azure AD Connect) legitimately replicate.
+//                       MDI's own detection logic handles this filtering internally.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// If you have Defender for Identity, this is the easiest DCSync detection. If not,
+// use the Event 4662 version instead.
+
+IdentityDirectoryEvents
+| where Timestamp > ago(7d)
+| where ActionType == "Directory Services replication"
+   or ActionType has "Suspected DCSync"
+| extend Phase = "CredAccess-DCSync-MDI"
+| project Timestamp, AccountName, AccountDomain, DeviceName,
+          DestinationDeviceName, ActionType, AdditionalFields, Phase
+| order by Timestamp desc

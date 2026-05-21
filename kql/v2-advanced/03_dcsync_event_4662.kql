@@ -1,0 +1,36 @@
+// Title: DCSync detection via Event 4662 replication GUIDs
+// MITRE: T1003.006 (DCSync)
+// Data sources: SecurityEvent (requires "Audit Directory Service Access" + SACL on domain root)
+// False positive notes: Domain Controller computer accounts (end in $) and MSOL_ accounts
+//                       legitimately replicate - both filtered. Near-zero false positives after that.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// The gold-standard DCSync detection. Catches Mimikatz, Impacket secretsdump, DSInternals,
+// and any other tool requesting AD replication rights from a user account.
+//
+// Required SACL: on the domain naming context, audit success for "Replicating Directory Changes",
+// "Replicating Directory Changes All", "Replicating Directory Changes In Filtered Set".
+
+SecurityEvent
+| where TimeGenerated > ago(7d)
+| where EventID == 4662
+| where AccessMask has "0x100"   // Control Access
+//
+// The three Schema-Id-GUIDs that grant replication rights
+| where Properties has_any (
+    "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",   // DS-Replication-Get-Changes
+    "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2",   // DS-Replication-Get-Changes-All
+    "89e95b76-444d-4c62-991a-0facbeda640c"    // DS-Replication-Get-Changes-In-Filtered-Set
+  )
+//
+// Filter out legitimate replication: DC computer accounts and AAD Connect MSOL
+| where SubjectUserName !endswith "$"
+| where SubjectUserName !startswith "MSOL_"
+| where SubjectUserName !in~ ("SYSTEM","LOCAL SERVICE","NETWORK SERVICE","ANONYMOUS LOGON")
+//
+| extend Phase = "CredAccess-DCSync"
+| extend GUIDsRequested = extract_all(@"\{([0-9a-f-]+)\}", Properties)
+| project TimeGenerated, Computer, SubjectUserName, SubjectDomainName,
+          SubjectLogonId, AccessMask, GUIDsRequested, Phase
+| order by TimeGenerated desc

@@ -1,0 +1,28 @@
+// Title: KV-botnet beaconing pattern (port 8443)
+// MITRE: T1090.003 (Multi-hop Proxy), T1572 (Protocol Tunneling)
+// Data sources: CommonSecurityLog with NetFlow/IPFIX or firewall traffic logs
+// Reference: Lumen Black Lotus Labs KV-botnet investigation, MIPS malware over 8443
+// Author: detection pack maintainers
+// Date: 2026-05-21
+
+CommonSecurityLog
+| where TimeGenerated > ago(24h)
+| where DeviceVendor in~ ("Fortinet","Cisco","PaloAltoNetworks","CheckPoint")
+| where DestinationPort == 8443
+| where DestinationIP !startswith "10." and DestinationIP !startswith "192.168."
+    and DestinationIP !startswith "172.16." and DestinationIP !startswith "172.17."
+| summarize
+    ConnectionCount = count(),
+    TotalBytes = sum(toint(SentBytes)) + sum(toint(ReceivedBytes)),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated),
+    UniqueIntervals = dcount(bin(TimeGenerated, 5m))
+    by SourceIP, DestinationIP
+| where ConnectionCount >= 10
+| extend BeaconingScore = case(
+    UniqueIntervals >= 20 and ConnectionCount / UniqueIntervals between (0.8 .. 1.5), "High",
+    UniqueIntervals >= 10, "Medium",
+    "Low")
+| extend Phase = "C2-KVBotnet"
+| where BeaconingScore != "Low"
+| order by ConnectionCount desc

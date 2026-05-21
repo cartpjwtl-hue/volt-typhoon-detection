@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 460" width="700" height="460">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M2 1L8 5L2 9" fill="none" stroke="#1e1e1e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      .title { font: 600 22px system-ui, sans-serif; fill: #1e1e1e; }
+      .sub { font: 400 14px system-ui, sans-serif; fill: #757575; }
+      .th { font: 600 14px system-ui, sans-serif; fill: #1e1e1e; }
+      .ts { font: 400 12px system-ui, sans-serif; fill: #1e1e1e; }
+      .arr { stroke: #1e1e1e; stroke-width: 1.5; fill: none; }
+    </style>
+  </defs>
+
+  <text class="title" x="350" y="32" text-anchor="middle">Volt Typhoon — Exploitation Flow</text>
+  <text class="sub" x="350" y="54" text-anchor="middle">Living-off-the-Land kill chain</text>
+
+  <!-- Phase 1: Initial Access -->
+  <rect x="40" y="80" width="620" height="50" rx="8" fill="#a5d8ff" stroke="#4a9eed"/>
+  <text class="th" x="350" y="100" text-anchor="middle">1. Initial Access</text>
+  <text class="ts" x="350" y="118" text-anchor="middle">Exploit edge device → steal credentials → hands-on-keyboard</text>
+  <line x1="350" y1="130" x2="350" y2="148" class="arr" marker-end="url(#arrow)"/>
+
+  <!-- Phase 2: Discovery -->
+  <rect x="40" y="148" width="620" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b"/>
+  <text class="th" x="350" y="168" text-anchor="middle">2. Discovery</text>
+  <text class="ts" x="350" y="186" text-anchor="middle">Where am I? (ip-api) — Who is admin? (net group) — What is nearby? (wmic)</text>
+  <line x1="350" y1="198" x2="350" y2="216" class="arr" marker-end="url(#arrow)"/>
+
+  <!-- Phase 3: C2 -->
+  <rect x="40" y="216" width="620" height="50" rx="8" fill="#d0bfff" stroke="#8b5cf6"/>
+  <text class="th" x="350" y="236" text-anchor="middle">3. C2 / Pivot</text>
+  <text class="ts" x="350" y="254" text-anchor="middle">netsh portproxy → host becomes a relay → tunnel to internal LAN</text>
+  <line x1="350" y1="266" x2="350" y2="284" class="arr" marker-end="url(#arrow)"/>
+
+  <!-- Phase 4: Credential Access -->
+  <rect x="40" y="284" width="620" height="50" rx="8" fill="#ffc9c9" stroke="#ef4444"/>
+  <text class="th" x="350" y="304" text-anchor="middle">4. Credential Access</text>
+  <text class="ts" x="350" y="322" text-anchor="middle">ntdsutil "ac i ntds" + "ifm create full" — OR — DCSync replication abuse</text>
+  <line x1="350" y1="334" x2="350" y2="352" class="arr" marker-end="url(#arrow)"/>
+
+  <!-- Phase 5: Exfil/Lateral -->
+  <rect x="40" y="352" width="620" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e"/>
+  <text class="th" x="350" y="372" text-anchor="middle">5. Staging &amp; Lateral</text>
+  <text class="ts" x="350" y="390" text-anchor="middle">7zip + password → rename to .gif → wmiexec to next host</text>
+
+  <text class="sub" x="350" y="430" text-anchor="middle">No custom malware — every step uses built-in Windows tools</text>
+</svg>

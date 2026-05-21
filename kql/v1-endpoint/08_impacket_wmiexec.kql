@@ -1,0 +1,21 @@
+// Title: Impacket wmiexec lateral movement pattern
+// MITRE: T1047 (WMI), T1021.002 (SMB/Admin Shares)
+// Data sources: DeviceProcessEvents
+// False positive notes: Essentially zero. The exact pattern of cmd.exe spawned by wmiprvse.exe
+//                       writing to \\127.0.0.1\ADMIN$\__<number> is Impacket's distinctive footprint.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Very high-fidelity. Impacket's wmiexec.py is a frequent post-exploitation tool and
+// Volt Typhoon has used the pattern.
+
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where InitiatingProcessFileName =~ "wmiprvse.exe"
+| where FileName =~ "cmd.exe"
+| where ProcessCommandLine matches regex @"(?i)/Q\s+/c\s+.*\\\\127\.0\.0\.1\\ADMIN\$\\__\d+"
+   or  ProcessCommandLine matches regex @"(?i)2>&1\s+1>\s+\\\\127\.0\.0\.1\\ADMIN\$"
+| extend Phase = "LateralMovement-Impacket"
+| project Timestamp, DeviceName, AccountName, ProcessCommandLine,
+          InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

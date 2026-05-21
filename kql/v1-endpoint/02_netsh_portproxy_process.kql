@@ -1,0 +1,26 @@
+// Title: netsh portproxy creation (signature Volt Typhoon TTP)
+// MITRE: T1090.001 (Internal Proxy)
+// Data sources: DeviceProcessEvents
+// False positive notes: Almost zero. Some load-balancer admins and developers tunneling for testing.
+//                       netsh is rarely used by Windows itself; legitimate uses are usually scripted.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// netsh portproxy turns the compromised host into a TCP relay without dropping malware.
+// This is the move that defines Volt Typhoon. Promote to P1 alert.
+
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where FileName =~ "netsh.exe"
+| where ProcessCommandLine has_all ("interface", "portproxy")
+   or ProcessCommandLine has "v4tov4"
+| extend SubCommand = case(
+    ProcessCommandLine has "add",    "ProxyCreated",
+    ProcessCommandLine has "delete", "ProxyDeleted",
+    ProcessCommandLine has "show",   "ProxyEnumerated",
+    "Other")
+| extend Phase = "C2-PortProxy"
+| project Timestamp, DeviceName, AccountName, SubCommand, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

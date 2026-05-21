@@ -1,0 +1,46 @@
+// Title: Multi-phase correlation on a single device (v1 capstone)
+// MITRE: Multi-tactic
+// Data sources: DeviceProcessEvents, SecurityEvent
+// False positive notes: Tuned by phase count. 2+ phases on one device in 24 hours is rare
+//                       outside legitimate sysadmin sessions; tune by allow-listing admin
+//                       jump boxes. 3+ phases is essentially never benign.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// The v1 capstone. See v2 for the account-based capstone that catches cross-host chains.
+
+let lookback = 24h;
+let recon =
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where ProcessCommandLine has_any ("net group \"Domain Admins\"","net localgroup administrators",
+                                        "ip-api.com","ipinfo.io","wmic logicaldisk")
+    | project Timestamp, DeviceName, Phase="Discovery", Evidence=ProcessCommandLine;
+let proxy =
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where FileName =~ "netsh.exe" and ProcessCommandLine has_all ("portproxy","v4tov4")
+    | project Timestamp, DeviceName, Phase="C2-PortProxy", Evidence=ProcessCommandLine;
+let ntds =
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where ProcessCommandLine has "ntdsutil"
+        and ProcessCommandLine has_any ("ifm","create full","ac i ntds")
+    | project Timestamp, DeviceName, Phase="CredAccess-NTDS", Evidence=ProcessCommandLine;
+let impacket =
+    DeviceProcessEvents
+    | where Timestamp > ago(7d)
+    | where InitiatingProcessFileName =~ "wmiprvse.exe" and FileName =~ "cmd.exe"
+    | where ProcessCommandLine matches regex @"(?i)\\\\127\.0\.0\.1\\ADMIN\$\\__\d+"
+    | project Timestamp, DeviceName, Phase="LateralMovement", Evidence=ProcessCommandLine;
+union recon, proxy, ntds, impacket
+| summarize
+    PhasesObserved = make_set(Phase),
+    PhaseCount     = dcount(Phase),
+    FirstSeen      = min(Timestamp),
+    LastSeen       = max(Timestamp),
+    SampleEvidence = make_list(Evidence, 10)
+    by DeviceName, bin(Timestamp, lookback)
+| where PhaseCount >= 2
+| extend Severity = case(PhaseCount >= 3, "Critical", "High")
+| order by PhaseCount desc, LastSeen desc

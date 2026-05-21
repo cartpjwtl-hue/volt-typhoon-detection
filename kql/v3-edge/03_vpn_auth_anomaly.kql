@@ -1,0 +1,30 @@
+// Title: VPN authentication from anomalous geography
+// MITRE: T1133, T1078
+// Data sources: CommonSecurityLog
+// False positive notes: Travel, mobile users, VPN clients with rotating IPs. Tune by user persona.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+
+let corp_ranges = dynamic(["10.","172.16.","172.17.","172.18.","172.19.","172.20.",
+                            "172.21.","172.22.","172.23.","172.24.","172.25.","172.26.",
+                            "172.27.","172.28.","172.29.","172.30.","172.31.","192.168."]);
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor in~ ("Fortinet","Cisco","PaloAltoNetworks","CheckPoint","Pulse Secure","Ivanti")
+| where Activity has_any ("login","authenticate","ssl-vpn-tunnel-up","vpn-tunnel-up")
+| where Activity !has "fail"
+| where isnotempty(SourceIP)
+| where not(SourceIP startswith_any (corp_ranges))
+| extend FirstOctet = tostring(split(SourceIP, ".")[0])
+| summarize
+    LoginCount = count(),
+    DistinctSourceIPs = dcount(SourceIP),
+    SourceIPs = make_set(SourceIP, 10),
+    FirstLogin = min(TimeGenerated),
+    LastLogin = max(TimeGenerated)
+    by SourceUserName, DeviceName, bin(TimeGenerated, 1d)
+| where DistinctSourceIPs >= 3 or LoginCount > 20
+| extend Phase = "InitialAccess-VPNAuth"
+| project SourceUserName, DeviceName, LoginCount, DistinctSourceIPs,
+          SourceIPs, FirstLogin, LastLogin, Phase
+| order by DistinctSourceIPs desc

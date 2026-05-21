@@ -1,0 +1,21 @@
+// Title: PortProxy registry persistence
+// MITRE: T1090.001
+// Data sources: DeviceRegistryEvents
+// False positive notes: Near-zero. Anything writing this key without a corresponding sysadmin
+//                       change ticket is suspicious.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Corroborates the netsh process detection. Command line can be obfuscated;
+// the registry write happens regardless. High-fidelity backup detection.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has @"\Services\PortProxy\v4tov4"
+| where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+| extend ListenPort = extract(@"(\d+)\s*$", 1, RegistryValueName)
+| extend Phase = "C2-PortProxy-Registry"
+| project Timestamp, DeviceName, ActionType, RegistryKey, RegistryValueName,
+          RegistryValueData, ListenPort, InitiatingProcessAccountName,
+          InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

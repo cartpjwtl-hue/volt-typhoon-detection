@@ -1,0 +1,97 @@
+// Title: Multi-device chain correlation by account (v2 capstone - the keystone detection)
+// MITRE: Multi-tactic
+// Data sources: DeviceProcessEvents, SecurityEvent
+// False positive notes: PhaseCount >= 3 essentially never false-positives. PhaseCount == 2
+//                       across DeviceCount >= 2 may have rare benign cases (admin doing
+//                       multi-host maintenance). Tune by allow-listing change-window accounts.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// The v2 keystone. The v1 capstone grouped by device; this groups by account, catching
+// the realistic Volt Typhoon pattern where activity spreads across multiple compromised hosts
+// under the same compromised account.
+
+let lookback = 24h;
+let window = 24h;
+//
+let discovery =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where ProcessCommandLine has_any ("net group \"Domain Admins\"",
+        "net localgroup administrators","ip-api.com","ipinfo.io","wmic logicaldisk")
+    | project Timestamp, DeviceName, AccountName,
+              LogonId=tostring(InitiatingProcessLogonId),
+              Phase="Discovery", Evidence=ProcessCommandLine;
+let proxy =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName =~ "netsh.exe" and ProcessCommandLine has_all ("portproxy","v4tov4")
+    | project Timestamp, DeviceName, AccountName,
+              LogonId=tostring(InitiatingProcessLogonId),
+              Phase="C2-Proxy", Evidence=ProcessCommandLine;
+let ntds_file =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where ProcessCommandLine has "ntdsutil"
+        and ProcessCommandLine has_any ("ifm","create full","ac i ntds")
+    | project Timestamp, DeviceName, AccountName,
+              LogonId=tostring(InitiatingProcessLogonId),
+              Phase="CredAccess-NTDS", Evidence=ProcessCommandLine;
+let ntds_dcsync =
+    SecurityEvent
+    | where TimeGenerated > ago(lookback)
+    | where EventID == 4662 and AccessMask has "0x100"
+    | where Properties has_any (
+        "1131f6aa-9c07-11d1-f79f-00c04fc2dcd2",
+        "1131f6ad-9c07-11d1-f79f-00c04fc2dcd2",
+        "89e95b76-444d-4c62-991a-0facbeda640c")
+    | where SubjectUserName !endswith "$" and SubjectUserName !startswith "MSOL_"
+    | project Timestamp=TimeGenerated, DeviceName=Computer,
+              AccountName=SubjectUserName, LogonId=tostring(SubjectLogonId),
+              Phase="CredAccess-DCSync", Evidence=Properties;
+let lateral =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where InitiatingProcessFileName =~ "wmiprvse.exe" and FileName =~ "cmd.exe"
+    | where ProcessCommandLine matches regex @"(?i)\\\\127\.0\.0\.1\\ADMIN\$\\__\d+"
+    | project Timestamp, DeviceName, AccountName,
+              LogonId=tostring(InitiatingProcessLogonId),
+              Phase="LateralMovement", Evidence=ProcessCommandLine;
+let evasion =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName in~ ("powershell.exe","pwsh.exe")
+    | where ProcessCommandLine has_any ("-enc ","-encodedcommand","frombase64string")
+    | project Timestamp, DeviceName, AccountName,
+              LogonId=tostring(InitiatingProcessLogonId),
+              Phase="Evasion-PSEncoded", Evidence=substring(ProcessCommandLine, 0, 200);
+//
+union discovery, proxy, ntds_file, ntds_dcsync, lateral, evasion
+| where isnotempty(AccountName)
+| where AccountName !in~ ("SYSTEM","LOCAL SERVICE","NETWORK SERVICE","-")
+//
+| summarize
+    PhasesObserved   = make_set(Phase),
+    PhaseCount       = dcount(Phase),
+    DevicesTouched   = make_set(DeviceName),
+    DeviceCount      = dcount(DeviceName),
+    EventCount       = count(),
+    FirstSeen        = min(Timestamp),
+    LastSeen         = max(Timestamp),
+    SampleEvidence   = make_list(Evidence, 15)
+    by AccountName, bin(Timestamp, window)
+//
+| where PhaseCount >= 2
+| extend ChainSpread = case(
+    DeviceCount >= 3 and PhaseCount >= 3, "Critical-MultiHostChain",
+    PhaseCount >= 3, "Critical-SingleAccountChain",
+    DeviceCount >= 2 and PhaseCount >= 2, "High-CrossHostActivity",
+    "Medium-SingleHostMultiPhase")
+| extend Severity = case(
+    PhaseCount >= 4, "Critical",
+    PhaseCount >= 3, "High",
+    "Medium")
+| project AccountName, Severity, ChainSpread, PhaseCount, DeviceCount,
+          PhasesObserved, DevicesTouched, EventCount,
+          FirstSeen, LastSeen, SampleEvidence
+| order by PhaseCount desc, DeviceCount desc, LastSeen desc

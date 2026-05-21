@@ -1,0 +1,46 @@
+// Title: Edge-to-endpoint chain correlation (the v3 capstone)
+// MITRE: Multi-tactic across initial access through credential access
+// Data sources: CommonSecurityLog + DeviceProcessEvents
+// False positive notes: Account name matching requires consistent identity across sources.
+//                       Use UPN normalization if names differ between edge and endpoint logs.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Correlates edge device compromise indicators with endpoint kill chain activity under
+// the same account. This is the cross-domain detection that catches the full Volt Typhoon
+// attack from initial breach through credential theft.
+
+let window = 24h;
+let edge_compromise =
+    CommonSecurityLog
+    | where TimeGenerated > ago(window)
+    | where DeviceVendor in~ ("Fortinet","Cisco","PaloAltoNetworks","Ivanti")
+    | where Activity has_any ("admin-login","config","ssl-vpn-tunnel-up")
+    | where SourceIP !startswith "10." and SourceIP !startswith "192.168."
+    | summarize EdgeEvents=count(),
+                EdgeDevice=any(DeviceName),
+                FirstEdgeIP=any(SourceIP),
+                FirstEdgeUser=any(SourceUserName)
+        by SourceUserName, bin(TimeGenerated, window);
+let endpoint_chain =
+    DeviceProcessEvents
+    | where Timestamp > ago(window)
+    | where (FileName =~ "netsh.exe" and ProcessCommandLine has_all ("portproxy","v4tov4"))
+         or (ProcessCommandLine has "ntdsutil" and ProcessCommandLine has "ifm")
+         or (InitiatingProcessFileName =~ "wmiprvse.exe" and FileName =~ "cmd.exe"
+             and ProcessCommandLine matches regex @"\\\\127\.0\.0\.1\\ADMIN\$")
+    | summarize EndpointEvents=count(),
+                EndpointDevices=make_set(DeviceName, 10),
+                EndpointPhases=make_set(case(
+                    ProcessCommandLine has "portproxy", "C2-Proxy",
+                    ProcessCommandLine has "ntdsutil",  "CredAccess",
+                    ProcessCommandLine has "ADMIN$",    "Lateral",
+                    "Other"))
+        by AccountName, bin(Timestamp, window);
+edge_compromise
+| join kind=inner endpoint_chain
+    on $left.SourceUserName == $right.AccountName
+| extend ChainSeverity = "Critical-EdgeToEndpoint"
+| project AccountName, EdgeDevice, FirstEdgeIP, EdgeEvents,
+          EndpointDevices, EndpointEvents, EndpointPhases, ChainSeverity
+| order by EndpointEvents desc

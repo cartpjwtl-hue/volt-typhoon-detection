@@ -1,0 +1,26 @@
+// Title: DNS to dynamic-DNS providers used by KV-botnet
+// MITRE: T1071.001, T1572
+// Data sources: DnsEvents (requires DNS query logging)
+// False positive notes: Some legitimate services use DDNS. Filter is "narrow targeting" - the
+//                       DistinctClients <= 5 condition excludes broadly used services.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+
+DnsEvents
+| where TimeGenerated > ago(7d)
+| where QueryType in ("A","AAAA")
+| where Name has_any (
+    ".changeip.org", ".dyndns.org", ".no-ip.com", ".no-ip.org", ".no-ip.biz",
+    ".duckdns.org", ".freedns.afraid.org", ".dynu.com", ".myftp.org",
+    ".serveftp.com", ".servepics.com", ".servegame.com", ".ddns.net"
+  )
+| summarize
+    QueryCount = count(),
+    DistinctClients = dcount(ClientIP),
+    Clients = make_set(ClientIP, 10),
+    FirstSeen = min(TimeGenerated),
+    LastSeen = max(TimeGenerated)
+    by Name
+| where DistinctClients <= 5
+| extend Phase = "C2-DDNS"
+| order by QueryCount desc

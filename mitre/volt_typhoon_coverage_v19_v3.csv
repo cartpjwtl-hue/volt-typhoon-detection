@@ -1,0 +1,59 @@
+Technique ID,Tactic (v19),Score,Coverage Level,Detection Notes
+T1078,initial-access,2,Single-phase detection,Valid Accounts. [v3 UPLIFT 1->2] Cross-referenced with edge VPN auth telemetry for impossible-travel and credential-stuffing patterns.
+T1078.002,initial-access,2,Single-phase detection,Domain Accounts. [v3 UPLIFT] Now correlated across edge VPN auth + endpoint capstone.
+T1133,initial-access,2,Single-phase detection,External Remote Services. [v3 UPLIFT 0->2] VPN authentication from anomalous geography detected via Edge Query 3 against Fortinet/Ivanti/Cisco SSL-VPN logs.
+T1190,initial-access,2,Single-phase detection,Exploit Public-Facing Application. [v3 UPLIFT 0->2] Fortinet CVE-2022-42475 and Cisco RV320/325 exploit indicators now detected via CommonSecurityLog CEF ingestion - Edge Query 1 + Query 2.
+T1584,resource-development,1,Hunting only / partial,Compromise Infrastructure. [v3 NEW] Partial via edge device config-drift detection (Query 6) catches compromised perimeter devices being repurposed.
+T1584.005,resource-development,1,Hunting only / partial,"Botnet. [v3 NEW] KV-botnet activity (Cisco/NETGEAR EOL SOHO routers, port 8443) partially detectable via NetFlow + EOL device watchlist (Edge Queries 4 + 7)."
+T1047,execution,3,High-fidelity / capstone,WMI - Impacket wmiexec pattern (cmd spawned by wmiprvse + ADMIN$ output) is high-fidelity.
+T1059.001,execution,3,High-fidelity / capstone,PowerShell - covered by v2 Encoded PowerShell detection with multi-layer scoring.
+T1059,execution,2,Single-phase detection,Command and Scripting Interpreter - Discovery query catches cmd/wmic invocations.
+T1059.003,execution,2,Single-phase detection,Windows Command Shell - covered by Discovery and capstone queries.
+T1053.005,execution,1,Hunting only / partial,Scheduled Task. Not in current pack - flagged for v3 persistence query set.
+T1078.003,persistence,1,Hunting only / partial,Local Accounts - account anomaly hunting.
+T1098,persistence,1,Hunting only / partial,Account Manipulation. [v3 UPLIFT 0->1] Partial coverage via edge config-change detection (Query 6) - catches privilege escalation on the edge device itself.
+T1546.003,persistence,0,Blind spot,WMI Event Subscription. BLIND SPOT - needs persistence query set.
+T1547.001,persistence,0,Blind spot,Registry Run Keys / Startup Folder. BLIND SPOT - needs persistence query set.
+T1027,stealth,3,High-fidelity / capstone,Obfuscated Files or Information - covered by v2 Encoded PowerShell scoring rule. [v19: moved to Stealth]
+T1027.010,stealth,3,High-fidelity / capstone,Command Obfuscation - explicitly scored by Encoded PowerShell query. [v19: Stealth tactic]
+T1036,stealth,2,Single-phase detection,Masquerading - .gif rename trick caught by FileRenamed query. [v19: Stealth tactic]
+T1036.005,stealth,2,Single-phase detection,Match Legitimate Name or Location - archive renamed to image extension. [v19: Stealth]
+T1036.008,stealth,2,Single-phase detection,Masquerade File Type - .dit hiding as .gif. [v19: Stealth]
+T1218,stealth,2,Single-phase detection,System Binary Proxy Execution - wmic call create caught by capstone. [v19: Stealth tactic]
+T1564,stealth,0,Blind spot,Hide Artifacts. Not specifically covered. [v19: Stealth tactic]
+T1070,defense-impairment,0,Blind spot,Indicator Removal. BLIND SPOT - needs Event 1102/104 query set. [v19: Defense Impairment tactic - new TA0112]
+T1070.001,defense-impairment,0,Blind spot,Clear Windows Event Logs. BLIND SPOT - needs tamper detection query. [v19: Defense Impairment]
+T1685,defense-impairment,0,Blind spot,Disable or Modify Tools. [v19 NEW: replaces retired T1562 + .001 + .006. Volt Typhoon has disabled AV/EDR services and Windows Defender. BLIND SPOT - needs EDR tamper monitoring.]
+T1003,credential-access,3,High-fidelity / capstone,OS Credential Dumping - parent technique. Multiple sub-techniques covered.
+T1003.003,credential-access,3,High-fidelity / capstone,NTDS - ntdsutil IFM detection is high-fidelity. THE signature Volt Typhoon detection.
+T1003.006,credential-access,3,High-fidelity / capstone,DCSync - covered by v2 Event 4662 + Schema-Id-GUID query. Essentially zero false positives.
+T1003.002,credential-access,2,Single-phase detection,Security Account Manager - reg save HKLM\SAM in alt-dump query.
+T1003.001,credential-access,1,Hunting only / partial,LSASS Memory - rundll32 comsvcs.dll MiniDump in alt-dump query. Other variants not covered.
+T1003.004,credential-access,1,Hunting only / partial,LSA Secrets - reg save HKLM\SECURITY in alt-dump query.
+T1552,credential-access,0,Blind spot,Unsecured Credentials. Not covered.
+T1555,credential-access,0,Blind spot,Credentials from Password Stores. Not covered.
+T1016,discovery,2,Single-phase detection,System Network Configuration Discovery - ip-api.com / ipinfo.io / ipconfig.
+T1057,discovery,2,Single-phase detection,Process Discovery - tasklist /svc.
+T1069.002,discovery,2,Single-phase detection,Domain Groups - net group Domain Admins enumeration.
+T1082,discovery,2,Single-phase detection,"System Information Discovery - systeminfo, wmic logicaldisk."
+T1087,discovery,2,Single-phase detection,Account Discovery - net group/net localgroup caught by Discovery query.
+T1087.001,discovery,2,Single-phase detection,Local Account discovery.
+T1087.002,discovery,2,Single-phase detection,Domain Account - net group /dom and net group Domain Admins.
+T1018,discovery,1,Hunting only / partial,"Remote System Discovery - nltest, net view. Partial coverage."
+T1033,discovery,1,Hunting only / partial,"System Owner/User Discovery - query user, whoami."
+T1049,discovery,1,Hunting only / partial,System Network Connections Discovery - netstat. Partial coverage.
+T1021.002,lateral-movement,2,Single-phase detection,SMB/Windows Admin Shares - Impacket pattern writing to ADMIN$.
+T1021,lateral-movement,1,Hunting only / partial,Remote Services - RDP/SMB usage. Partial.
+T1021.006,lateral-movement,1,Hunting only / partial,Windows Remote Management. Partial.
+T1570,lateral-movement,1,Hunting only / partial,Lateral Tool Transfer - SMB copy. Partial via file events.
+T1560,collection,2,Single-phase detection,Archive Collected Data - 7zip/rar staging query.
+T1560.001,collection,2,Single-phase detection,"Archive via Utility - 7z.exe, rar.exe with password (-mhe -p)."
+T1005,collection,1,Hunting only / partial,Data from Local System. Partial.
+T1090,command-and-control,3,High-fidelity / capstone,Proxy - netsh portproxy detection plus registry corroboration.
+T1090.001,command-and-control,3,High-fidelity / capstone,Internal Proxy - the signature Volt Typhoon TTP. High-fidelity coverage.
+T1090.003,command-and-control,2,Single-phase detection,Multi-hop Proxy. [v3 UPLIFT 1->2] KV-botnet beaconing on port 8443 detected via NetFlow Edge Query 4.
+T1572,command-and-control,2,Single-phase detection,Protocol Tunneling. [v3 UPLIFT 1->2] FRP/Earthworm tunneling detected via outbound 8443 anomaly + DNS DDNS query (Edge Queries 4 + 5).
+T1071.001,command-and-control,1,Hunting only / partial,Web Protocols. [v3 UPLIFT 0->1] Partial via DNS DDNS hunting (Edge Query 5) and outbound beaconing patterns.
+T1105,command-and-control,0,Blind spot,Ingress Tool Transfer. Not covered.
+T1041,exfiltration,1,Hunting only / partial,Exfil over C2 Channel. [v3 UPLIFT 0->1] Partial via NetFlow byte-volume anomalies on KV-botnet beaconing channels.
+T1567,exfiltration,0,Blind spot,Exfil over Web Service. Not covered without proxy/NDR logs.

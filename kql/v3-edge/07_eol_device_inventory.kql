@@ -1,0 +1,24 @@
+// Title: End-of-life edge device inventory hunt (KV-botnet targets)
+// MITRE: Pre-detection asset hygiene
+// Data sources: Custom watchlist (Edge_Device_Inventory)
+// Reference: KV-botnet targets Cisco RV320/325, NETGEAR ProSafe, D-Link DSR
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Requires a Sentinel watchlist called "Edge_Device_Inventory" with columns:
+// AssetTag, Hostname, Model, FirmwareVersion, LastFirmwareUpdate, VendorEOLDate, NetworkSegment
+
+let eol_models = dynamic([
+    "RV320","RV325","RV016","RV042","RV082",
+    "WGR614","WNR1000","WNR2000","DGN2200","DG834","R6300","R7000",
+    "DSR-150","DSR-250","DSR-500","DSR-1000",
+    "BiPAC","TD-W8901G","TL-WR841N"
+  ]);
+_GetWatchlist('Edge_Device_Inventory')
+| where Model has_any (eol_models)
+   or LastFirmwareUpdate < ago(365d)
+   or VendorEOLDate < now()
+| extend Risk = "EOL-KVBotnet-Target"
+| project AssetTag, Hostname, Model, FirmwareVersion, LastFirmwareUpdate,
+          VendorEOLDate, NetworkSegment, Risk
+| order by VendorEOLDate asc

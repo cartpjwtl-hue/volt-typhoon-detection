@@ -1,0 +1,26 @@
+// Title: Volt Typhoon LOTL discovery commands
+// MITRE: T1087, T1087.001, T1087.002, T1016, T1082, T1057
+// Data sources: DeviceProcessEvents
+// False positive notes: Admin scripts, jump boxes, IT inventory tools. Tune by allow-listing known admin accounts.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Catches the post-foothold reconnaissance phase: "Where am I, who is admin, what is nearby?"
+
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where FileName in~ ("cmd.exe","powershell.exe","pwsh.exe","net.exe","net1.exe","curl.exe","wmic.exe")
+| where ProcessCommandLine has_any (
+    "ip-api.com", "ipinfo.io",
+    "net localgroup administrators",
+    "net group \"Domain Admins\"",
+    "net group /dom",
+    "systeminfo",
+    "tasklist /svc",
+    "wmic logicaldisk",
+    "query user"
+  )
+| extend Phase = "Discovery"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

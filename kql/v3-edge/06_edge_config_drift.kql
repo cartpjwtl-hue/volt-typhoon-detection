@@ -1,0 +1,25 @@
+// Title: Unauthorized firewall configuration changes
+// MITRE: T1584 (Compromise Infrastructure), T1098 (Account Manipulation)
+// Data sources: CommonSecurityLog
+// False positive notes: Adjust business hours and management subnets per environment.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+
+CommonSecurityLog
+| where TimeGenerated > ago(7d)
+| where DeviceVendor in~ ("Fortinet","Cisco","PaloAltoNetworks","CheckPoint")
+| where Activity has_any ("config","cli","admin-cli","exec","commit","write-mem")
+    or DeviceAction has_any ("config","commit")
+| extend Hour = hourofday(TimeGenerated)
+| extend DayOfWeek = dayofweek(TimeGenerated)
+| extend OutsideBusinessHours = Hour < 7 or Hour > 19 or DayOfWeek in (6d, 0d)
+| extend NonMgmtIP = not(SourceIP startswith "10.0.1.")   // adjust mgmt range
+| extend RiskLevel = case(
+    OutsideBusinessHours and NonMgmtIP, "Critical",
+    OutsideBusinessHours or NonMgmtIP, "High",
+    "Medium")
+| where RiskLevel != "Medium"
+| extend Phase = "Persistence-EdgeConfig"
+| project TimeGenerated, DeviceName, SourceIP, SourceUserName, Activity,
+          DeviceAction, OutsideBusinessHours, NonMgmtIP, RiskLevel, Message, Phase
+| order by TimeGenerated desc

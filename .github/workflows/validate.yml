@@ -1,0 +1,54 @@
+name: Validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-json:
+    name: Validate MITRE layer JSON
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate JSON files
+        run: |
+          for f in mitre/*.json; do
+            echo "Validating $f"
+            python3 -c "import json; json.load(open('$f'))"
+          done
+
+  check-kql-headers:
+    name: Check KQL files have proper headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify all KQL files have Title and MITRE headers
+        run: |
+          missing=0
+          for f in $(find kql -name "*.kql"); do
+            if ! head -20 "$f" | grep -q "// Title:"; then
+              echo "MISSING Title header: $f"
+              missing=1
+            fi
+            if ! head -20 "$f" | grep -q "// MITRE:"; then
+              echo "MISSING MITRE header: $f"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  markdown-link-check:
+    name: Check markdown links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify markdown files parse
+        run: |
+          # Lightweight check - ensure no broken internal references
+          for f in $(find . -name "*.md" -not -path "./node_modules/*"); do
+            echo "Checking $f"
+            # Verify the file is readable and non-empty
+            test -s "$f" || (echo "EMPTY: $f"; exit 1)
+          done

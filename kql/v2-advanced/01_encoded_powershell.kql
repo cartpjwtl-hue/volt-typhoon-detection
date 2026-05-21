@@ -1,0 +1,48 @@
+// Title: Encoded and obfuscated PowerShell hunt
+// MITRE: T1059.001, T1027, T1027.010
+// Data sources: DeviceProcessEvents
+// False positive notes: -NoProfile and encoded commands appear in some installers and admin
+//                       scripts. Multi-layer scoring filters these; tune threshold per environment.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Closes the obfuscation gap in v1 detections. Scores three signals (encoded, obfuscated, intent)
+// and alerts only on combinations.
+
+DeviceProcessEvents
+| where Timestamp > ago(7d)
+| where FileName in~ ("powershell.exe","pwsh.exe","powershell_ise.exe")
+| extend CmdLower = tolower(ProcessCommandLine)
+//
+// Layer 1: encoded command flags
+| extend HasEncoded = CmdLower has_any (
+    "-enc", "-encodedcommand", "-encoded", "-ec ",
+    "frombase64string", "[convert]::frombase64",
+    "-e jab", "-e iab", "-e wwbn"
+  )
+//
+// Layer 2: obfuscation patterns
+| extend HasObfuscation =
+       CmdLower matches regex @"[`^]{2,}"
+    or CmdLower matches regex @"(\w+\+\w+){3,}"
+    or CmdLower matches regex @"\[char\]\d+"
+    or CmdLower has_any ("-bxor", "-replace", "-join")
+    or CmdLower has "iex " or CmdLower has "invoke-expression"
+//
+// Layer 3: suspicious cmdlets that pair with obfuscation
+| extend HasSuspiciousIntent = CmdLower has_any (
+    "downloadstring", "downloadfile", "webclient", "invoke-webrequest",
+    "invoke-mimikatz", "invoke-ninjacopy", "invoke-dcsync",
+    "get-aduser", "get-adcomputer", "get-addomain", "get-adgroupmember",
+    "ntds", "lsass", "sekurlsa", "minidump",
+    "schtasks", "new-scheduledtask",
+    "-windowstyle hidden", "-noprofile", "-nologo", "-noninteractive"
+  )
+//
+| extend Score = toint(HasEncoded) * 3 + toint(HasObfuscation) * 2 + toint(HasSuspiciousIntent) * 2
+| where Score >= 3
+| extend Phase = "Evasion-PowerShell"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+          Score, HasEncoded, HasObfuscation, HasSuspiciousIntent,
+          InitiatingProcessFileName, InitiatingProcessCommandLine, Phase
+| order by Score desc, Timestamp desc

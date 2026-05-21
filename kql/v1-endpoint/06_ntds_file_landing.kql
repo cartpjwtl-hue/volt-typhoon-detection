@@ -1,0 +1,21 @@
+// Title: ntds.dit file written outside expected backup paths
+// MITRE: T1003.003
+// Data sources: DeviceFileEvents
+// False positive notes: Legitimate backup software writing to non-default paths. Allow-list backup paths.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Catches the artifact on disk regardless of which tool created it. Critical signal
+// if the path is C:\Windows\Temp or a user-writable directory.
+
+DeviceFileEvents
+| where Timestamp > ago(30d)
+| where FileName =~ "ntds.dit" or FileName endswith ".dit"
+| where ActionType in ("FileCreated","FileRenamed","FileModified")
+| where FolderPath !startswith @"C:\Windows\NTDS"
+| where FolderPath !has "SystemRoot"
+| extend Phase = "CredAccess-NTDSFile"
+| project Timestamp, DeviceName, ActionType, FileName, FolderPath,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

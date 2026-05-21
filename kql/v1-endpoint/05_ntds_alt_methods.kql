@@ -1,0 +1,23 @@
+// Title: Alternative AD credential theft methods
+// MITRE: T1003, T1003.002 (SAM), T1003.004 (LSA), T1003.001 (LSASS)
+// Data sources: DeviceProcessEvents
+// False positive notes: Backup software may legitimately use vssadmin. LSASS dumping is almost
+//                       never legitimate outside of incident response with Sysinternals tools.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Covers fallback methods when ntdsutil isn't used: shadow copies, registry hive saves,
+// LSASS memory dumps. comsvcs.dll MiniDump is a classic LOLBin technique.
+
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where (FileName =~ "vssadmin.exe" and ProcessCommandLine has "create shadow")
+    or (FileName =~ "reg.exe" and ProcessCommandLine has "save"
+        and ProcessCommandLine has_any ("hklm\\system","hklm\\security","hklm\\sam"))
+    or (FileName =~ "esentutl.exe" and ProcessCommandLine has "ntds.dit")
+    or (FileName =~ "rundll32.exe" and ProcessCommandLine has "comsvcs.dll"
+        and ProcessCommandLine has_cs "MiniDump")
+| extend Phase = "CredAccess-Alt"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+          InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

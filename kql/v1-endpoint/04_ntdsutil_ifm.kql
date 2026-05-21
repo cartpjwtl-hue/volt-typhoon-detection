@@ -1,0 +1,22 @@
+// Title: NTDS.dit extraction via ntdsutil Install From Media
+// MITRE: T1003.003 (NTDS)
+// Data sources: DeviceProcessEvents
+// False positive notes: Legitimate DC promotion uses ntdsutil. Filter on known DC build windows.
+//                       On a running DC, "ifm create full" outside a change window is essentially never benign.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// THE signature Volt Typhoon credential-theft detection. Promote to P1 with DC asset tagging.
+
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where (FileName =~ "ntdsutil.exe")
+   or (ProcessCommandLine has "ntdsutil")
+| where ProcessCommandLine has_any ("ifm", "create full", "ac i ntds", "activate instance ntds")
+| extend OutputPath = extract(@"create full\s+([A-Za-z]:\\[^\""]+)", 1, ProcessCommandLine)
+| extend WmicWrapped = ProcessCommandLine has "wmic" and ProcessCommandLine has "process call create"
+| extend Phase = "CredAccess-NTDS"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+          OutputPath, WmicWrapped, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

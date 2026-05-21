@@ -1,0 +1,32 @@
+// Title: 7zip/RAR staging plus .gif extension masquerade
+// MITRE: T1560.001 (Archive via Utility), T1036.008 (Masquerade File Type)
+// Data sources: DeviceProcessEvents, DeviceFileEvents
+// False positive notes: Backup utilities, legitimate file renames. The combination of
+//                       archive activity touching ntds/temp.dit + a rename to image extension
+//                       is the high-fidelity signal.
+// Author: detection pack maintainers
+// Date: 2026-05-21
+//
+// Volt Typhoon disguises exfiltrated AD database archives as .gif images. Catches both the
+// archiving and the rename step.
+
+DeviceProcessEvents
+| where Timestamp > ago(30d)
+| where FileName in~ ("7z.exe","7za.exe","rar.exe","winrar.exe","makecab.exe")
+| where ProcessCommandLine has_any ("ntds","temp.dit","\\Temp\\","-p","-mhe")
+| extend Phase = "Exfil-Staging"
+| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
+          InitiatingProcessCommandLine, Phase
+| union (
+    DeviceFileEvents
+    | where Timestamp > ago(30d)
+    | where ActionType == "FileRenamed"
+    | where PreviousFileName has_any (".7z",".zip",".rar",".dit")
+    | where FileName endswith ".gif" or FileName endswith ".jpg" or FileName endswith ".png"
+    | extend AccountName = InitiatingProcessAccountName
+    | extend ProcessCommandLine = InitiatingProcessCommandLine
+    | extend Phase = "Exfil-Masquerade"
+    | project Timestamp, DeviceName, AccountName, FileName=strcat(PreviousFileName," -> ",FileName),
+              ProcessCommandLine, InitiatingProcessCommandLine, Phase
+  )
+| order by Timestamp desc
