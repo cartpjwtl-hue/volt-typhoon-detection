@@ -1,0 +1,42 @@
+// Title: Event log / audit policy disabled via registry
+// MITRE: T1562.002 (Disable Windows Event Logging), T1070.001 (Clear Windows Event Logs
+//        preparation), T1112 (Modify Registry)  [v19: Defense Impairment / Stealth]
+// Data sources: DeviceRegistryEvents
+// False positive notes: Group Policy refreshes (gpsvc.exe) and the OS (svchost.exe / SYSTEM)
+//                       legitimately write EventLog channel keys. This query drops those
+//                       source processes. A channel being set Enabled=0, or autologger trace
+//                       sessions stopped, from cmd/powershell/reg is the red flag.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Disabling auditing is an indicator-removal precursor: silence the channel first, act second.
+// Catches per-channel EventLog disables and audit-policy registry tampering. DWORD data is
+// normalized so "0"/"0x00000000" both match.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has_any (
+    @"\Services\EventLog\Security",
+    @"\Services\EventLog\System",
+    @"\Microsoft\Windows\CurrentVersion\WINEVT\Channels",   // per-channel Enabled flag
+    @"\Control\Lsa\Audit",
+    @"\Policies\Microsoft\Windows\EventLog",
+    @"\Control\WMI\Autologger")                              // ETW trace sessions (EventLog-*)
+| where ActionType in ("RegistryValueSet", "RegistryKeyDeleted")
+| where InitiatingProcessFileName !in~ ("svchost.exe", "gpsvc.exe", "lsass.exe", "services.exe", "TiWorker.exe")
+//
+// Normalize DWORD data, then flag the disable patterns.
+| extend Dword = tolong(RegistryValueData)
+| extend TamperAction = case(
+    RegistryKey has @"\WINEVT\Channels" and RegistryValueName =~ "Enabled" and Dword == 0, "ChannelDisabled",
+    RegistryValueName =~ "Start" and RegistryKey has "Autologger" and Dword == 0,          "AutologgerStopped",
+    RegistryValueName has_any ("AuditBaseObjects", "FullPrivilegeAuditing", "CrashOnAuditFail") and Dword == 0, "LsaAuditWeakened",
+    RegistryValueName =~ "Retention",                                                       "RetentionChanged",
+    RegistryValueName =~ "MaxSize" and Dword <= 1048576,                                    "LogSizeShrunk",
+    "Other")
+| where TamperAction != "Other"
+| extend Phase = "DefenseImpair-AuditTamper"
+| project Timestamp, DeviceName, TamperAction, ActionType, RegistryKey, RegistryValueName,
+          RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

@@ -2,6 +2,39 @@
 
 All notable changes to this detection pack will be documented in this file.
 
+## [v4.0] - 2026-06-27
+
+### Added
+- Registry-layer detection pack (`kql/v4-registry/`) — 11 queries on `DeviceRegistryEvents`
+  (or Sysmon Event ID 12/13/14):
+  - PortProxy `v*tov*` rule creation (obfuscation-proof netsh C2 relay artifact)
+  - NTDS database-path / diagnostics tampering, and VSS footprint from LOLBin parents
+  - Event-log channel / audit-policy disable via registry
+  - Microsoft Defender policy flips **plus** security-service (`WinDefend`/`Sense`/`WdNisSvc`) disable
+  - Service install via suspicious `ImagePath`/`ServiceDll`
+  - AutoRun keys + Winlogon `Userinit`/`Shell` hijacks
+  - Scheduled-task `TaskCache` registration / Microsoft-folder masquerade
+  - WinRM remoting + weak-auth enablement; RDP enable / NLA disable
+  - Revamped weighted registry-only kill-chain capstone (account + multi-host, tactic-spread scoring)
+- Modify Registry (T1112) to the MITRE layer — CISA AA24-038A explicitly tags the PortProxy
+  registry modification as `[T1112]`
+- New techniques mapped: T1112, T1543.003, T1021.001, T1562.002
+
+### Changed
+- MITRE layer updated to v4 (`volt_typhoon_attack_layer_v19_v4.json`) + coverage CSV
+- Defense Impairment tactic coverage: 0.00 → 2.00
+- Persistence tactic coverage: 0.50 → 1.20
+- Lateral Movement tactic coverage: 1.25 → 1.60
+- Execution 2.20 → 2.40; Stealth 2.00 → 2.12
+- Technique count 58 → 62; blind spots 10 → 6; high-fidelity 9 → 10
+
+### Notes
+- DWORD registry values are matched in both decimal (`"1"`) and hex (`"0x00000001"`) form,
+  since sensors render them differently.
+- Volt Typhoon avoids malware persistence (re-access via valid accounts), so the autorun /
+  service / scheduled-task queries are defense-in-depth, not VT signatures — documented in the
+  pack README.
+
 ## [v3.0] - 2026-05-21
 
 ### Added

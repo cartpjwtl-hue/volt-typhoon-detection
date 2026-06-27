@@ -1,0 +1,38 @@
+// Title: Service installation via registry (suspicious ImagePath / ServiceDll)
+// MITRE: T1543.003 (Windows Service), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Software installers (msiexec/TiWorker) create services constantly.
+//                       This keys on suspicious image LOCATION (user-writable / temp) or a
+//                       random-looking 8-16 char service name, and the PsExec service name.
+//                       Allow-list known software service names and signed installer parents.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Note on Volt Typhoon: VT prefers valid-account re-access over malware services, so this is
+// defense-in-depth rather than a VT signature. It catches PsExec/remote-service lateral
+// movement and any deviation where an operator drops a service from a staging directory.
+// The ImagePath / ServiceDll value write carries the binary location; that is the pivot.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey matches regex @"(?i)\\Services\\[^\\]+(\\Parameters)?$"
+| where RegistryValueName in~ ("ImagePath", "ServiceDll")
+| extend ServiceName = tostring(extract(@"(?i)\\Services\\([^\\]+)", 1, RegistryKey))
+| extend ImagePath = RegistryValueData
+//
+| extend SuspiciousLocation = ImagePath has_any (
+    @"\temp\", @"\public\", @"\appdata\", @"\programdata\", @"\users\",
+    @"\windows\debug\", @"\windows\tasks\", @"\perflogs\", @"\$recycle.bin\")
+| extend RandomName = ServiceName matches regex @"^[a-zA-Z0-9]{8,16}$"
+                      and ServiceName !in~ ("TrustedInstaller", "SecurityHealthService")
+| extend PsExecLike = ServiceName has_any ("PSEXESVC", "PAExec") or ImagePath has_any ("psexesvc", "paexec")
+| extend LolbinLauncher = ImagePath has_any ("powershell", "cmd.exe", "rundll32", "regsvr32", "mshta", "-enc", "-encodedcommand")
+//
+| where SuspiciousLocation or RandomName or PsExecLike or LolbinLauncher
+| extend Phase = "Persistence-ServiceInstall"
+| project Timestamp, DeviceName, ServiceName, ImagePath,
+          SuspiciousLocation, RandomName, PsExecLike, LolbinLauncher,
+          RegistryKey, RegistryValueName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, InitiatingProcessAccountName, Phase
+| order by Timestamp desc

@@ -1,0 +1,29 @@
+// Title: Volume Shadow Copy registry footprint from suspicious parents
+// MITRE: T1003.003 (NTDS via VSS), T1006 (Direct Volume Access)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Backup software (Veeam, Acronis, Windows Backup, SQL VSS writer)
+//                       legitimately drives VSS and writes these keys. This query only keeps
+//                       events whose initiating process is a hands-on-keyboard / LOLBin parent,
+//                       which removes most benign backup noise. Allow-list known backup agents.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Volt Typhoon and similar actors create a shadow copy to read a locked ntds.dit
+// (`vssadmin create shadow`, diskshadow, WMI). VSS leaves diagnostic/settings registry
+// writes. Pairing the registry footprint with a LOLBin parent process is the signal.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has_any (
+    @"\Services\VSS\Diag",
+    @"\Services\VSS\Settings",
+    @"\Microsoft\Windows NT\CurrentVersion\Diagnostics\VSS")
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+| where InitiatingProcessFileName in~ (
+    "cmd.exe", "powershell.exe", "pwsh.exe", "wmic.exe",
+    "ntdsutil.exe", "diskshadow.exe", "vssadmin.exe", "esentutl.exe", "wbadmin.exe")
+| extend Phase = "CredAccess-VSS-Registry"
+| project Timestamp, DeviceName, ActionType, RegistryKey, RegistryValueName, RegistryValueData,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

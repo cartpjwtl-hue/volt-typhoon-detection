@@ -1,0 +1,45 @@
+// Title: PortProxy registry rule creation (netsh portproxy ground truth)
+// MITRE: T1090.001 (Internal Proxy), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Near-zero. Anything writing a PortProxy v*tov* value without a
+//                       corresponding sysadmin change ticket is suspicious. Load-balancer
+//                       admins occasionally script portproxy; allow-list those hosts.
+// Tested against: Synthetic DeviceRegistryEvents; CISA AA24-038A IOC layout.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// CISA AA24-038A: Volt Typhoon used netsh to create a PortProxy registry modification
+// [T1112] on a PRTG server, converting it into a relay for C2 [T1090.001]. The OS writes
+// this key as a side effect of `netsh interface portproxy add` regardless of how netsh was
+// invoked. Even if the command line is encoded/obfuscated and never logs the word
+// "portproxy", this key is written. That makes it the artifact the operator cannot hide.
+//
+// Note on the key path: Defender/Sysmon log the live control set (e.g. ControlSet001),
+// not the CurrentControlSet symlink, so this matches on the \Services\PortProxy\ substring
+// to catch ControlSet001/002/CurrentControlSet alike, and all four address-family variants.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has @"\Services\PortProxy\"
+| where RegistryKey has_any (@"\v4tov4", @"\v4tov6", @"\v6tov4", @"\v6tov6")
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+//
+// In v4tov4\tcp the value NAME encodes listen address/port and the value DATA encodes the
+// forward (connect) address/port: e.g. name "0.0.0.0/9999" data "192.0.2.10/8443".
+| extend ListenAddress = tostring(extract(@"^(.+?)/\d+$", 1, RegistryValueName))
+| extend ListenPort    = tostring(extract(@"/(\d+)$", 1, RegistryValueName))
+| extend ForwardInfo   = RegistryValueData
+//
+| extend IsAllInterfaces   = ListenAddress in ("0.0.0.0", "::", "*")
+| extend ForwardsToPrivate = RegistryValueData matches regex @"(^|/)(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)"
+| extend Severity = case(
+    IsAllInterfaces and ForwardsToPrivate, "Critical",
+    IsAllInterfaces,                        "High",
+    "Medium")
+| extend Phase = "C2-PortProxy-Registry"
+| project Timestamp, DeviceName, Severity, ActionType, RegistryKey, RegistryValueName,
+          RegistryValueData, ListenAddress, ListenPort, ForwardInfo,
+          IsAllInterfaces, ForwardsToPrivate,
+          InitiatingProcessAccountName, InitiatingProcessFileName,
+          InitiatingProcessCommandLine, Phase
+| order by Timestamp desc

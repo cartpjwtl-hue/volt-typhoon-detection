@@ -1,0 +1,42 @@
+// Title: AutoRun registry persistence (Run keys / Winlogon / startup hijacks)
+// MITRE: T1547.001 (Registry Run Keys / Startup Folder), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Plenty of legitimate software writes Run keys. The suspicion filter
+//                       requires either a LOLBin/script interpreter or a user-writable launch
+//                       path in the value data, which strips most benign installs. Winlogon
+//                       Userinit/Shell appends are far rarer and weighted higher.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Defense-in-depth (not a documented VT signature). Catches classic autorun persistence and
+// the high-value Winlogon Userinit/Shell hijacks, where appending a second binary after the
+// comma is the give-away.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"\Microsoft\Windows\CurrentVersion\Run",
+    @"\Microsoft\Windows\CurrentVersion\RunOnce",
+    @"\Microsoft\Windows\CurrentVersion\RunServices",
+    @"\Microsoft\Windows\CurrentVersion\RunServicesOnce",
+    @"\Microsoft\Windows\CurrentVersion\Explorer\Run",
+    @"\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run",
+    @"\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit",
+    @"\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell")
+//
+| extend IsWinlogon = RegistryKey has @"\Winlogon\"
+// Winlogon Userinit/Shell are normally a fixed single value; anything beyond the default is suspect.
+| extend WinlogonHijack = IsWinlogon
+    and not(RegistryValueData in~ (@"C:\Windows\system32\userinit.exe,", "explorer.exe", @"C:\Windows\explorer.exe"))
+| extend SuspiciousPayload = RegistryValueData has_any (
+    @"\temp\", @"\appdata\", @"\public\", @"\programdata\", @"\users\public\", @"\perflogs\",
+    "powershell", "cmd /c", "cmd.exe /c", "mshta", "rundll32", "regsvr32",
+    "wscript", "cscript", "-enc", "-encodedcommand", "frombase64string", "downloadstring", "iex ")
+| where WinlogonHijack or SuspiciousPayload
+| extend Severity = case(WinlogonHijack, "High", "Medium")
+| extend Phase = "Persistence-AutoRun"
+| project Timestamp, DeviceName, Severity, RegistryKey, RegistryValueName, RegistryValueData,
+          PreviousRegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc
