@@ -1,0 +1,66 @@
+// Title: LSASS credential-exposure & protection tampering via registry
+// MITRE: T1112 (Modify Registry), T1003.001 (LSASS Memory - via credential exposure),
+//        T1547.005 (Security Support Provider), T1556.002 (Password Filter DLL),
+//        T1685 (Disable or Modify Tools - LSA protection downgrade) [v19: Defense Impairment]
+// Data sources: DeviceRegistryEvents
+// False positive notes: Legitimate hardening tooling toggles some of these (usually the
+//                       SECURE direction). Alert on the INSECURE direction: WDigest enabled,
+//                       RunAsPPL disabled, Credential Guard disabled, a new SSP/notification
+//                       package DLL. GPO/svchost under SYSTEM sets these during policy apply -
+//                       weight non-system authors higher. DWORD data matched decimal + hex.
+// Tested against: Known WDigest downgrade + SSP-injection registry paths; arXiv:2108.10422
+//                 (LSA-protection bypass discussion).
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The registry-side companion to the LSASS handle-access rule (v1 05c). Rather than dumping
+// LSASS, an operator can (a) force plaintext credentials INTO LSASS (WDigest downgrade),
+// (b) turn OFF the protection that stops dumping (RunAsPPL / Credential Guard), or
+// (c) load their own credential-harvesting DLL into LSASS (SSP / password filter). All three
+// are registry-observable before the theft happens - high-value early warning.
+
+let on  = dynamic(["1", "0x00000001"]);
+let off = dynamic(["0", "0x00000000"]);
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+| extend TamperAction = case(
+    // (a) WDigest downgrade - forces reversible/plaintext creds to be cached in LSASS
+    RegistryKey has @"\SecurityProviders\WDigest" and RegistryValueName =~ "UseLogonCredential"
+        and RegistryValueData in (on),                                          "WDigest-PlaintextEnabled",
+    // (b) LSA protection (RunAsPPL) disabled - lets user-mode tools open LSASS again
+    RegistryKey has @"\Control\Lsa" and RegistryValueName =~ "RunAsPPL"
+        and RegistryValueData in (off),                                         "LSAProtection-Disabled",
+    RegistryKey has @"\Control\Lsa" and RegistryValueName =~ "RunAsPPLBoot"
+        and RegistryValueData in (off),                                         "LSAProtectionBoot-Disabled",
+    // Credential Guard / LSA isolation disabled
+    RegistryKey has @"\Control\Lsa" and RegistryValueName =~ "LsaCfgFlags"
+        and RegistryValueData in (off),                                         "CredentialGuard-Disabled",
+    RegistryKey has @"\DeviceGuard" and RegistryValueName =~ "LsaCfgFlags"
+        and RegistryValueData in (off),                                         "CredentialGuard-Disabled",
+    // (c) SSP injection - a malicious DLL loaded into LSASS as a Security Support Provider
+    RegistryKey has @"\Control\Lsa" and RegistryValueName in~ ("Security Packages", "OSConfig\\Security Packages"), "SSP-PackageAdded",
+    RegistryKey has @"\Control\Lsa\OSConfig" and RegistryValueName =~ "Security Packages", "SSP-PackageAdded",
+    // Password filter DLL - Notification Packages (captures plaintext at password change)
+    RegistryKey has @"\Control\Lsa" and RegistryValueName =~ "Notification Packages", "PasswordFilter-Added",
+    // NoLmHash flipped off / weak auth level (exposes weaker hashes)
+    RegistryKey has @"\Control\Lsa" and RegistryValueName =~ "LmCompatibilityLevel"
+        and RegistryValueData in ("0", "1", "0x00000000", "0x00000001"),        "LmCompat-Weakened",
+    "Other")
+| where TamperAction != "Other"
+// For SSP / password-filter / notification packages, surface what was added vs the prior value.
+| extend AddedPackages = iff(TamperAction in ("SSP-PackageAdded", "PasswordFilter-Added"),
+                             set_difference(
+                                 split(tolower(RegistryValueData), " "),
+                                 split(tolower(PreviousRegistryValueData), " ")),
+                             dynamic([]))
+| extend Severity = case(
+    TamperAction in ("SSP-PackageAdded", "PasswordFilter-Added") and array_length(AddedPackages) > 0, "Critical",
+    TamperAction in ("WDigest-PlaintextEnabled", "LSAProtection-Disabled", "CredentialGuard-Disabled"), "High",
+    "Medium")
+| extend Phase = "CredAccess-LSASS-RegistryEnabler"
+| project Timestamp, DeviceName, Severity, TamperAction, RegistryKey, RegistryValueName,
+          RegistryValueData, PreviousRegistryValueData, AddedPackages,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

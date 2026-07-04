@@ -16,6 +16,24 @@ All notable changes to this detection pack will be documented in this file.
     WerFault abuse, nanodump/dumpert, PowerShell Out-Minidump
   Mirrors the utility list used by the v4 registry detections (v4/02 NTDS, v4/03 VSS) and
   adds a VSS-registry corroboration union so the process and registry layers agree.
+  Includes: PowerShell-native NTDS reads (Copy-Item/Get-Content/[IO.File], DSInternals,
+  Invoke-NinjaCopy), handle-duplication LSASS tools, .NET reflection / inline-compile LSASS
+  dumps, comsvcs #24 ordinal evasion, and vshadow.exe. Destructive shadow abuse (T1490) is
+  intentionally out of scope.
+- `kql/v1-endpoint/05c_lsass_handle_access.kql` - behavioral LSASS handle-access detection
+  (Sysmon EID 10 / MDE `OpenProcessApiCall`) keyed on dump-capable `GrantedAccess` masks and
+  unbacked (UNKNOWN) call stacks. Closes the direct-syscall / ETW-patch / reflection blind
+  spot that command-line rules cannot see. Grounded in arXiv:2108.10422 (empirical EDR-evasion
+  assessment).
+- `kql/v4-registry/12_lsass_cred_registry_tamper.kql` - registry-side credential-exposure &
+  protection tampering: WDigest `UseLogonCredential` downgrade, RunAsPPL / Credential Guard
+  disable, SSP `Security Packages` injection, and password-filter `Notification Packages`.
+
+### Changed
+- MITRE v4 layer + CSV: T1003.001 (LSASS Memory) uplifted 1 -> 3 (behavioral + cmdline +
+  registry-enabler coverage); added T1547.005 (Security Support Provider) and T1556.002
+  (Password Filter DLL). Credential Access 1.62 -> 1.89, Persistence 1.20 -> 1.33.
+  Technique count 62 -> 64; high-fidelity 10 -> 11.
 
 ## [v4.0] - 2026-06-27
 

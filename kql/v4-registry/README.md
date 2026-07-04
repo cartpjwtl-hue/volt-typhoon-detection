@@ -29,6 +29,7 @@ ingested. Without one of those, this entire category is invisible.
 | 9 | `09_winrm_enable.kql` | WinRM remoting / weak-auth enablement | T1021.006 | High |
 | 10 | `10_rdp_enable.kql` | RDP enabled / NLA disabled | T1021.001 | High |
 | 11 | `11_capstone_registry_chain.kql` | Weighted multi-phase registry-only kill chain | Multi | Keystone |
+| 12 | `12_lsass_cred_registry_tamper.kql` | WDigest downgrade, RunAsPPL/Credential Guard disable, SSP & password-filter DLL injection | T1112, T1003.001, T1547.005, T1556.002, T1685 | High |
 
 ## What makes v4 different from the draft patterns
 

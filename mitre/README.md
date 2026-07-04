@@ -26,14 +26,14 @@ The heatmap renders with detection coverage scored 0–3:
 
 ## Coverage summary (v4)
 
-62 techniques across 12 tactics:
-- 10 high-fidelity
-- 32 single-phase
-- 14 partial / hunting
+64 techniques across 12 tactics:
+- 11 high-fidelity
+- 34 single-phase
+- 13 partial / hunting
 - 6 blind spots
 
 Strongest tactics: Execution (2.40), Stealth (2.12), Defense Impairment (2.00), Initial Access (2.00).
-Weakest tactics: Exfiltration (0.50), Resource Development (1.00), Persistence (1.20).
+Weakest tactics: Exfiltration (0.50), Resource Development (1.00), Persistence (1.33).
 
 The v4 registry pack closes the two former weak spots: Defense Impairment **0.00 → 2.00** and
 Persistence **0.50 → 1.20** (Lateral Movement also rises 1.25 → 1.60).

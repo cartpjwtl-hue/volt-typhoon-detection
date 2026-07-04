@@ -268,8 +268,8 @@
     {
       "techniqueID": "T1003.001",
       "tactic": "credential-access",
-      "score": 1,
-      "comment": "LSASS Memory - rundll32 comsvcs.dll MiniDump in alt-dump query. Other variants not covered.",
+      "score": 3,
+      "comment": "LSASS Memory. [v4 UPLIFT 1->3] Now multi-angle: behavioral handle-access (Sysmon EID10 / MDE OpenProcessApiCall, dump-capable GrantedAccess + unbacked call stack, v1 05c), cmdline dump LOLBins incl. handle-dup & .NET reflection (v1 05b), and registry enablers - WDigest downgrade / RunAsPPL disable / SSP injection (v4 12). Grounded in arXiv:2108.10422.",
       "enabled": true
     },
     {
@@ -515,6 +515,20 @@
       "tactic": "defense-impairment",
       "score": 2,
       "comment": "Disable Windows Event Logging. [v4 NEW] EventLog channel / Autologger / LSA audit weakening via registry (v4 Query 4). [v19: survives the T1562 split as standalone Defense Impairment technique]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1547.005",
+      "tactic": "persistence",
+      "score": 2,
+      "comment": "Security Support Provider. [v4 NEW] Malicious SSP DLL injected into LSASS via Lsa\\Security Packages registry write (v4 Query 12).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1556.002",
+      "tactic": "credential-access",
+      "score": 2,
+      "comment": "Password Filter DLL. [v4 NEW] Notification Packages registry write loading a credential-capturing filter DLL (v4 Query 12).",
       "enabled": true
     }
   ]

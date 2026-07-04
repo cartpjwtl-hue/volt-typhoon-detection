@@ -15,6 +15,7 @@ T1546.003,persistence,0,Blind spot,WMI Event Subscription. BLIND SPOT - needs pe
 T1098,persistence,1,Hunting only / partial,Account Manipulation. [v3 UPLIFT 0->1] Partial coverage via edge config-change detection (Query 6) - catches privilege escalation on the edge device itself.
 T1078.003,persistence,1,Hunting only / partial,Local Accounts - account anomaly hunting.
 T1543.003,persistence,2,Single-phase detection,"Windows Service. [v4 NEW] Service ImagePath/ServiceDll written from staging paths or random-named keys, incl. PsExec service pattern (v4 Query 6)."
+T1547.005,persistence,2,Single-phase detection,Security Support Provider. [v4 NEW] Malicious SSP DLL injected into LSASS via Lsa\Security Packages registry write (v4 Query 12).
 T1027,stealth,3,High-fidelity / capstone,Obfuscated Files or Information - covered by v2 Encoded PowerShell scoring rule. [v19: moved to Stealth]
 T1027.010,stealth,3,High-fidelity / capstone,Command Obfuscation - explicitly scored by Encoded PowerShell query. [v19: Stealth tactic]
 T1036,stealth,2,Single-phase detection,Masquerading - .gif rename trick caught by FileRenamed query. [v19: Stealth tactic]
@@ -30,11 +31,12 @@ T1562.002,defense-impairment,2,Single-phase detection,Disable Windows Event Logg
 T1003,credential-access,3,High-fidelity / capstone,OS Credential Dumping - parent technique. Multiple sub-techniques covered.
 T1003.003,credential-access,3,High-fidelity / capstone,NTDS - ntdsutil IFM detection is high-fidelity. THE signature Volt Typhoon detection.
 T1003.006,credential-access,3,High-fidelity / capstone,DCSync - covered by v2 Event 4662 + Schema-Id-GUID query. Essentially zero false positives.
-T1003.001,credential-access,1,Hunting only / partial,LSASS Memory - rundll32 comsvcs.dll MiniDump in alt-dump query. Other variants not covered.
+T1003.001,credential-access,3,High-fidelity / capstone,"LSASS Memory. [v4 UPLIFT 1->3] Now multi-angle: behavioral handle-access (Sysmon EID10 / MDE OpenProcessApiCall, dump-capable GrantedAccess + unbacked call stack, v1 05c), cmdline dump LOLBins incl. handle-dup & .NET reflection (v1 05b), and registry enablers - WDigest downgrade / RunAsPPL disable / SSP injection (v4 12). Grounded in arXiv:2108.10422."
 T1003.002,credential-access,2,Single-phase detection,Security Account Manager - reg save HKLM\SAM in alt-dump query.
 T1003.004,credential-access,1,Hunting only / partial,LSA Secrets - reg save HKLM\SECURITY in alt-dump query.
 T1552,credential-access,0,Blind spot,Unsecured Credentials. Not covered.
 T1555,credential-access,0,Blind spot,Credentials from Password Stores. Not covered.
+T1556.002,credential-access,2,Single-phase detection,Password Filter DLL. [v4 NEW] Notification Packages registry write loading a credential-capturing filter DLL (v4 Query 12).
 T1087,discovery,2,Single-phase detection,Account Discovery - net group/net localgroup caught by Discovery query.
 T1087.001,discovery,2,Single-phase detection,Local Account discovery.
 T1087.002,discovery,2,Single-phase detection,Domain Account - net group /dom and net group Domain Admins.

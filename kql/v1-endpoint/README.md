@@ -12,6 +12,7 @@ Phase-by-phase KQL detections targeting Microsoft Defender XDR and Sentinel endp
 | 4 | `04_ntdsutil_ifm.kql` | ntdsutil IFM AD database theft | T1003.003 | Score 3 |
 | 5 | `05_ntds_alt_methods.kql` | vssadmin / reg save / comsvcs MiniDump | T1003 | Score 2 |
 | 5b | `05b_alt_dump_methods_v2.kql` | **All-inclusive** alt credential-dump: shadow-copy (vssadmin/diskshadow/wbadmin/wmic/PS/ntdsutil snapshot) + NTDS/hive extraction + LSASS dump LOLBins, method-classified, with VSS-registry corroboration | T1003, T1003.001-.004, T1006 | Score 2-3 |
+| 5c | `05c_lsass_handle_access.kql` | **Behavioral** LSASS handle access (Sysmon EID10 / MDE `OpenProcessApiCall`) with dump-capable `GrantedAccess` + unbacked call stack — catches direct-syscall/reflection dumps that command lines can't (arXiv:2108.10422) | T1003.001 | Score 3 |
 | 6 | `06_ntds_file_landing.kql` | ntds.dit file written outside backup paths | T1003.003 | Score 2 |
 | 7 | `07_staging_gif_masquerade.kql` | 7zip + .gif rename trick | T1560.001, T1036.008 | Score 2 |
 | 8 | `08_impacket_wmiexec.kql` | Impacket lateral movement signature | T1047 | Score 3 |

@@ -61,17 +61,17 @@ Execution                     2.40   ████████████  Stron
 Stealth (v19)                 2.12   ██████████░░  Strong
 Initial access                2.00   ██████████░░  Strong (v3)
 Defense impairment (v19)      2.00   ██████████░░  Strong (v4)
+Credential access             1.89   █████████░░░  Solid (v4)
 Command & control             1.83   █████████░░░  Solid
 Discovery                     1.70   ████████░░░░  Solid
 Collection                    1.67   ████████░░░░  Solid
-Credential access             1.62   ████████░░░░  Solid
 Lateral movement              1.60   ████████░░░░  Solid (v4)
-Persistence                   1.20   ██████░░░░░░  Partial (v4)
+Persistence                   1.33   ██████░░░░░░  Partial (v4)
 Resource development          1.00   █████░░░░░░░  Partial
 Exfiltration                  0.50   ██░░░░░░░░░░  Exposed
 ```
 
-**62 techniques mapped • 10 high-fidelity • 32 single-phase • 14 partial • 6 blind spots**
+**64 techniques mapped • 11 high-fidelity • 34 single-phase • 13 partial • 6 blind spots**
 
 ## Detection highlights
 

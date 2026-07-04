@@ -1,30 +1,37 @@
 // Title: Phase 3b (v2) - comprehensive alternate credential-dump methods
 // MITRE: T1003 (OS Credential Dumping), T1003.003 (NTDS), T1003.001 (LSASS Memory),
 //        T1003.002 (SAM), T1003.004 (LSA Secrets), T1006 (Direct Volume Access),
-//        T1490 (Inhibit System Recovery - shadow abuse overlaps)
+//        T1059.001 (PowerShell - used as the extraction/dump host)
 // Data sources: DeviceProcessEvents, DeviceRegistryEvents
 // False positive notes: Backup software (Veeam, Acronis, DPM, SQL VSS writer, wbadmin jobs)
-//                       legitimately creates shadow copies and calls vssadmin/diskshadow/wbadmin.
-//                       Allow-list known backup agents / service accounts and scheduled backup
-//                       windows. LSASS dumping and reg-save of SAM/SYSTEM/SECURITY are almost
-//                       never benign outside sanctioned IR. Tune the DumpMethod values you expect.
+//                       legitimately creates shadow copies and calls vssadmin/diskshadow/wbadmin/
+//                       vshadow. Allow-list known backup agents / service accounts and scheduled
+//                       backup windows. LSASS dumping and reg-save of SAM/SYSTEM/SECURITY are
+//                       almost never benign outside sanctioned IR. csc.exe/vbc.exe spawned by
+//                       PowerShell can be legitimate build tooling - tune per environment.
 // Tested against: Synthetic DeviceProcessEvents; MITRE T1003.003 procedure examples.
 // Author: detection pack maintainers
 // Date: 2026-06-27
 //
-// SUPERSEDES the original Phase 3b (which only covered vssadmin + reg save + esentutl +
-// comsvcs). "Alternate dump methods" is much broader than VSS: this v2 covers the full set of
-// shadow-copy creation utilities, every NTDS/hive extraction path, and the common LSASS dump
-// LOLBins - and it mirrors the utility list considered by the v4 registry detections
-// (v4/02 NTDS registry, v4/03 VSS registry) so the process and registry layers agree.
+// SUPERSEDES the original Phase 3b (vssadmin + reg save + esentutl + comsvcs only). "Alternate
+// dump methods" is much broader than VSS: this v2 covers the full set of shadow-copy creation
+// utilities, every NTDS/hive extraction path (incl. PowerShell-native reads), and the common +
+// evasive LSASS dump techniques - and it mirrors the utility list considered by the v4 registry
+// detections (v4/02 NTDS registry, v4/03 VSS registry) so process and registry layers agree.
+//
+// Scope note: destructive shadow abuse (vssadmin/wmic delete shadows, T1490) is intentionally
+// OUT of scope here - this rule is about credential access, not recovery inhibition.
 //
 // Coverage:
-//   A. Shadow-copy creation   -> vssadmin, diskshadow, wbadmin, wmic shadowcopy, PowerShell
-//                                Win32_ShadowCopy, ntdsutil snapshot           [T1003.003/T1006]
+//   A. Shadow-copy creation   -> vssadmin, diskshadow, wbadmin, vshadow, wmic shadowcopy,
+//                                PowerShell Win32_ShadowCopy, ntdsutil snapshot   [T1003.003/T1006]
 //   B. NTDS / hive extraction -> esentutl /y|/vss, copy from GLOBALROOT shadow, ntdsutil ifm,
-//                                reg save|export of SAM/SYSTEM/SECURITY                [T1003.00x]
-//   C. LSASS memory dump      -> comsvcs MiniDump, procdump, createdump, sqldumper, rdrleakdiag,
-//                                WerFault abuse, nanodump/dumpert, PowerShell Out-Minidump [T1003.001]
+//                                PowerShell Copy-Item/Get-Content/[IO.File], DSInternals,
+//                                Invoke-NinjaCopy, reg save|export of SAM/SYSTEM/SECURITY [T1003.00x]
+//   C. LSASS memory dump      -> comsvcs MiniDump (incl. #24 ordinal), procdump, createdump,
+//                                sqldumper, rdrleakdiag, WerFault, nanodump/dumpert, handle-
+//                                duplication tools, .NET reflection / inline C# compile,
+//                                PowerShell Out-Minidump                                [T1003.001]
 
 let lookback = 30d;
 //
@@ -32,11 +39,13 @@ let proc_dumps =
     DeviceProcessEvents
     | where Timestamp > ago(lookback)
     | extend Cmd = tolower(ProcessCommandLine)
+    | extend ParentPs = InitiatingProcessFileName in~ ("powershell.exe", "pwsh.exe")
     | extend DumpMethod = case(
         // ---- A. Shadow-copy creation --------------------------------------------------------
         FileName =~ "vssadmin.exe"   and Cmd has "create shadow",                              "VSS:vssadmin",
-        FileName =~ "diskshadow.exe" and (Cmd has_any ("create", "expose", "/s") or Cmd endswith ".dsh" or Cmd has ".txt"), "VSS:diskshadow",
+        FileName =~ "diskshadow.exe" and (Cmd has_any ("create", "expose", "/s") or Cmd has ".dsh" or Cmd has ".txt"), "VSS:diskshadow",
         FileName =~ "wbadmin.exe"    and Cmd has "start backup",                               "VSS:wbadmin",
+        FileName =~ "vshadow.exe"    and Cmd has_any ("-p", "-nw", "-script", "-exec"),        "VSS:vshadow",
         FileName =~ "wmic.exe"       and Cmd has "shadowcopy" and Cmd has "call create",       "VSS:wmic",
         FileName in~ ("powershell.exe","pwsh.exe") and Cmd has "win32_shadowcopy" and Cmd has "create", "VSS:powershell-cim",
         FileName =~ "ntdsutil.exe"   and Cmd has "snapshot",                                   "VSS:ntdsutil-snapshot",
@@ -44,19 +53,39 @@ let proc_dumps =
         FileName =~ "ntdsutil.exe"   and Cmd has_any ("ifm", "create full", "ac i ntds", "activate instance ntds"), "NTDS:ntdsutil-ifm",
         FileName =~ "esentutl.exe"   and (Cmd has "/vss" or (Cmd has "/y" and Cmd has "ntds") or Cmd has "ntds.dit"), "NTDS:esentutl-copy",
         Cmd has "globalroot" and Cmd has_any ("ntds.dit", "\\config\\system", "\\config\\sam", "\\config\\security"), "NTDS:shadow-copy-out",
+        // NEW (1): PowerShell-native NTDS read/copy - Copy-Item / Get-Content / [IO.File] on the .dit
+        FileName in~ ("powershell.exe","pwsh.exe") and Cmd has "ntds.dit"
+            and Cmd has_any ("copy-item", "get-content", "[io.file]", "::readallbytes", "::copy", "set-content", "move-item"), "NTDS:powershell-copy",
+        // NEW (1b): DSInternals offline ntds.dit parsing (Get-ADDBAccount / boot key) and NinjaCopy raw read
+        Cmd has_any ("get-addbaccount", "get-addbbackupkey", "get-bootkey", "dsinternals"),   "NTDS:dsinternals",
+        Cmd has "invoke-ninjacopy",                                                            "NTDS:ninjacopy",
         FileName in~ ("cmd.exe","xcopy.exe","robocopy.exe","copy.exe") and Cmd has "ntds.dit", "NTDS:file-copy",
         FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\sam",        "HIVE:reg-save-SAM",
         FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\security",   "HIVE:reg-save-SECURITY",
         FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\system",     "HIVE:reg-save-SYSTEM",
         // ---- C. LSASS memory dump -----------------------------------------------------------
-        FileName =~ "rundll32.exe" and Cmd has "comsvcs.dll" and Cmd has "minidump",           "LSASS:comsvcs",
+        // comsvcs: match the MiniDump export AND the #24 / #+24 ordinal that evades string checks
+        FileName =~ "rundll32.exe" and Cmd has "comsvcs.dll" and Cmd has_any ("minidump", "#24", "#+24", "# 24"), "LSASS:comsvcs",
         FileName has_any ("procdump", "procdump64") and Cmd has "lsass",                        "LSASS:procdump",
         FileName =~ "createdump.exe" and (Cmd has "lsass" or Cmd has "-f"),                     "LSASS:createdump",
         FileName =~ "sqldumper.exe" and Cmd has_any ("0x0110", "0x01100"),                      "LSASS:sqldumper",
         FileName =~ "rdrleakdiag.exe" and Cmd has_any ("/fullmemdmp", "fullmemdmp"),            "LSASS:rdrleakdiag",
         FileName =~ "werfault.exe" and Cmd has "lsass",                                         "LSASS:werfault",
         FileName has_any ("nanodump", "dumpert", "mimikatz", "lsassy"),                         "LSASS:known-tool",
+        // NEW (2): handle-duplication LSASS access (steal/duplicate an existing lsass handle)
+        FileName has_any ("handlekatz", "forkdump", "malseclogon", "pypykatz")
+            or (Cmd has_any ("nanodump", "--dup", "--handle", "--fork") and Cmd has "lsass")
+            or (Cmd has "seclogon" and Cmd has "lsass")
+            or (Cmd has "duplicatehandle" and Cmd has "lsass"),                                 "LSASS:handle-dup",
+        // NEW (3a): .NET reflection dump - Add-Type/DllImport reaching MiniDumpWriteDump in dbghelp
+        FileName in~ ("powershell.exe","pwsh.exe")
+            and Cmd has_any ("minidumpwritedump", "dbghelp.dll", "dbgcore.dll")
+            and Cmd has_any ("add-type", "dllimport", "getdelegateforfunctionpointer", "reflection.emit",
+                             "[reflection.assembly]", "getprocaddress",
+                             "system.runtime.interopservices", "system.diagnostics.process"), "LSASS:dotnet-reflection",
         FileName in~ ("powershell.exe","pwsh.exe") and Cmd has_any ("out-minidump", "minidumpwritedump"), "LSASS:ps-minidump",
+        // NEW (3b): inline C#/VB compilation hosted by PowerShell (csc/vbc spawned by PS) - hunt signal
+        ParentPs and FileName in~ ("csc.exe", "vbc.exe"),                                       "LSASS:inline-compile",
         "Other")
     | where DumpMethod != "Other"
     | extend Category = tostring(split(DumpMethod, ":")[0])
@@ -69,10 +98,11 @@ let proc_dumps =
         Category == "LSASS", "T1003.001",
         "T1003")
     | extend Severity = case(
-        Category in ("NTDS", "LSASS"),           "High",
-        Category == "HIVE",                       "High",
-        Category == "VSS" and Cmd has "ntds",     "High",
-        "Medium")                                 // bare shadow creation: pair with NTDS/file evidence
+        // inline-compile alone is a hunt-grade signal (can be benign build tooling)
+        DumpMethod == "LSASS:inline-compile",     "Medium",
+        Category in ("NTDS", "LSASS", "HIVE"),     "High",
+        Category == "VSS" and Cmd has "ntds",      "High",
+        "Medium")                                  // bare shadow creation: pair with NTDS/file evidence
     | extend Phase = "CredAccess-AltDump"
     | project Timestamp, DeviceName, AccountName, Category, DumpMethod, Technique, Severity,
               FileName, ProcessCommandLine, InitiatingProcessFileName,
@@ -89,7 +119,7 @@ let vss_registry =
     | where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
     | where InitiatingProcessFileName in~ (
         "cmd.exe","powershell.exe","pwsh.exe","wmic.exe",
-        "ntdsutil.exe","diskshadow.exe","vssadmin.exe","esentutl.exe","wbadmin.exe")
+        "ntdsutil.exe","diskshadow.exe","vssadmin.exe","esentutl.exe","wbadmin.exe","vshadow.exe")
     | extend Category="VSS", DumpMethod=strcat("VSS-registry:", InitiatingProcessFileName),
              Technique="T1003.003 / T1006", Severity="Medium", Phase="CredAccess-AltDump",
              AccountName=InitiatingProcessAccountName, FileName=InitiatingProcessFileName,
