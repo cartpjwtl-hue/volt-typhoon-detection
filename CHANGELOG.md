@@ -2,6 +2,21 @@
 
 All notable changes to this detection pack will be documented in this file.
 
+## [Unreleased] - 2026-06-27
+
+### Added
+- `kql/v1-endpoint/05b_alt_dump_methods_v2.kql` - all-inclusive rewrite of Phase 3b.
+  The original only covered vssadmin + reg save + esentutl + comsvcs. v2 covers the full
+  alternate credential-dump surface, method-classified with per-method MITRE mapping:
+  - Shadow-copy creation: vssadmin, diskshadow, wbadmin, wmic shadowcopy, PowerShell
+    Win32_ShadowCopy, ntdsutil snapshot
+  - NTDS / hive extraction: esentutl /y|/vss, copy from GLOBALROOT shadow, ntdsutil ifm,
+    reg save/export of SAM/SYSTEM/SECURITY
+  - LSASS memory dump: comsvcs MiniDump, procdump, createdump, sqldumper, rdrleakdiag,
+    WerFault abuse, nanodump/dumpert, PowerShell Out-Minidump
+  Mirrors the utility list used by the v4 registry detections (v4/02 NTDS, v4/03 VSS) and
+  adds a VSS-registry corroboration union so the process and registry layers agree.
+
 ## [v4.0] - 2026-06-27
 
 ### Added

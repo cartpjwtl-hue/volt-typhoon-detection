@@ -1,0 +1,102 @@
+// Title: Phase 3b (v2) - comprehensive alternate credential-dump methods
+// MITRE: T1003 (OS Credential Dumping), T1003.003 (NTDS), T1003.001 (LSASS Memory),
+//        T1003.002 (SAM), T1003.004 (LSA Secrets), T1006 (Direct Volume Access),
+//        T1490 (Inhibit System Recovery - shadow abuse overlaps)
+// Data sources: DeviceProcessEvents, DeviceRegistryEvents
+// False positive notes: Backup software (Veeam, Acronis, DPM, SQL VSS writer, wbadmin jobs)
+//                       legitimately creates shadow copies and calls vssadmin/diskshadow/wbadmin.
+//                       Allow-list known backup agents / service accounts and scheduled backup
+//                       windows. LSASS dumping and reg-save of SAM/SYSTEM/SECURITY are almost
+//                       never benign outside sanctioned IR. Tune the DumpMethod values you expect.
+// Tested against: Synthetic DeviceProcessEvents; MITRE T1003.003 procedure examples.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// SUPERSEDES the original Phase 3b (which only covered vssadmin + reg save + esentutl +
+// comsvcs). "Alternate dump methods" is much broader than VSS: this v2 covers the full set of
+// shadow-copy creation utilities, every NTDS/hive extraction path, and the common LSASS dump
+// LOLBins - and it mirrors the utility list considered by the v4 registry detections
+// (v4/02 NTDS registry, v4/03 VSS registry) so the process and registry layers agree.
+//
+// Coverage:
+//   A. Shadow-copy creation   -> vssadmin, diskshadow, wbadmin, wmic shadowcopy, PowerShell
+//                                Win32_ShadowCopy, ntdsutil snapshot           [T1003.003/T1006]
+//   B. NTDS / hive extraction -> esentutl /y|/vss, copy from GLOBALROOT shadow, ntdsutil ifm,
+//                                reg save|export of SAM/SYSTEM/SECURITY                [T1003.00x]
+//   C. LSASS memory dump      -> comsvcs MiniDump, procdump, createdump, sqldumper, rdrleakdiag,
+//                                WerFault abuse, nanodump/dumpert, PowerShell Out-Minidump [T1003.001]
+
+let lookback = 30d;
+//
+let proc_dumps =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | extend Cmd = tolower(ProcessCommandLine)
+    | extend DumpMethod = case(
+        // ---- A. Shadow-copy creation --------------------------------------------------------
+        FileName =~ "vssadmin.exe"   and Cmd has "create shadow",                              "VSS:vssadmin",
+        FileName =~ "diskshadow.exe" and (Cmd has_any ("create", "expose", "/s") or Cmd endswith ".dsh" or Cmd has ".txt"), "VSS:diskshadow",
+        FileName =~ "wbadmin.exe"    and Cmd has "start backup",                               "VSS:wbadmin",
+        FileName =~ "wmic.exe"       and Cmd has "shadowcopy" and Cmd has "call create",       "VSS:wmic",
+        FileName in~ ("powershell.exe","pwsh.exe") and Cmd has "win32_shadowcopy" and Cmd has "create", "VSS:powershell-cim",
+        FileName =~ "ntdsutil.exe"   and Cmd has "snapshot",                                   "VSS:ntdsutil-snapshot",
+        // ---- B. NTDS / hive extraction ------------------------------------------------------
+        FileName =~ "ntdsutil.exe"   and Cmd has_any ("ifm", "create full", "ac i ntds", "activate instance ntds"), "NTDS:ntdsutil-ifm",
+        FileName =~ "esentutl.exe"   and (Cmd has "/vss" or (Cmd has "/y" and Cmd has "ntds") or Cmd has "ntds.dit"), "NTDS:esentutl-copy",
+        Cmd has "globalroot" and Cmd has_any ("ntds.dit", "\\config\\system", "\\config\\sam", "\\config\\security"), "NTDS:shadow-copy-out",
+        FileName in~ ("cmd.exe","xcopy.exe","robocopy.exe","copy.exe") and Cmd has "ntds.dit", "NTDS:file-copy",
+        FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\sam",        "HIVE:reg-save-SAM",
+        FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\security",   "HIVE:reg-save-SECURITY",
+        FileName =~ "reg.exe" and Cmd has_any ("save","export") and Cmd has "hklm\\system",     "HIVE:reg-save-SYSTEM",
+        // ---- C. LSASS memory dump -----------------------------------------------------------
+        FileName =~ "rundll32.exe" and Cmd has "comsvcs.dll" and Cmd has "minidump",           "LSASS:comsvcs",
+        FileName has_any ("procdump", "procdump64") and Cmd has "lsass",                        "LSASS:procdump",
+        FileName =~ "createdump.exe" and (Cmd has "lsass" or Cmd has "-f"),                     "LSASS:createdump",
+        FileName =~ "sqldumper.exe" and Cmd has_any ("0x0110", "0x01100"),                      "LSASS:sqldumper",
+        FileName =~ "rdrleakdiag.exe" and Cmd has_any ("/fullmemdmp", "fullmemdmp"),            "LSASS:rdrleakdiag",
+        FileName =~ "werfault.exe" and Cmd has "lsass",                                         "LSASS:werfault",
+        FileName has_any ("nanodump", "dumpert", "mimikatz", "lsassy"),                         "LSASS:known-tool",
+        FileName in~ ("powershell.exe","pwsh.exe") and Cmd has_any ("out-minidump", "minidumpwritedump"), "LSASS:ps-minidump",
+        "Other")
+    | where DumpMethod != "Other"
+    | extend Category = tostring(split(DumpMethod, ":")[0])
+    | extend Technique = case(
+        Category == "VSS",   "T1003.003 / T1006",
+        Category == "NTDS",  "T1003.003",
+        Category == "HIVE" and DumpMethod endswith "SAM",      "T1003.002",
+        Category == "HIVE" and DumpMethod endswith "SECURITY", "T1003.004",
+        Category == "HIVE",  "T1003.002 (SYSTEM boot key)",
+        Category == "LSASS", "T1003.001",
+        "T1003")
+    | extend Severity = case(
+        Category in ("NTDS", "LSASS"),           "High",
+        Category == "HIVE",                       "High",
+        Category == "VSS" and Cmd has "ntds",     "High",
+        "Medium")                                 // bare shadow creation: pair with NTDS/file evidence
+    | extend Phase = "CredAccess-AltDump"
+    | project Timestamp, DeviceName, AccountName, Category, DumpMethod, Technique, Severity,
+              FileName, ProcessCommandLine, InitiatingProcessFileName,
+              InitiatingProcessCommandLine, Phase;
+//
+// Registry corroboration: the same shadow-copy utilities leave a VSS footprint in the registry
+// (mirrors v4/03). Surfacing it here lets the process and registry layers reinforce each other.
+let vss_registry =
+    DeviceRegistryEvents
+    | where Timestamp > ago(lookback)
+    | where RegistryKey has_any (
+        @"\Services\VSS\Diag", @"\Services\VSS\Settings",
+        @"\Microsoft\Windows NT\CurrentVersion\Diagnostics\VSS")
+    | where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+    | where InitiatingProcessFileName in~ (
+        "cmd.exe","powershell.exe","pwsh.exe","wmic.exe",
+        "ntdsutil.exe","diskshadow.exe","vssadmin.exe","esentutl.exe","wbadmin.exe")
+    | extend Category="VSS", DumpMethod=strcat("VSS-registry:", InitiatingProcessFileName),
+             Technique="T1003.003 / T1006", Severity="Medium", Phase="CredAccess-AltDump",
+             AccountName=InitiatingProcessAccountName, FileName=InitiatingProcessFileName,
+             ProcessCommandLine=InitiatingProcessCommandLine
+    | project Timestamp, DeviceName, AccountName, Category, DumpMethod, Technique, Severity,
+              FileName, ProcessCommandLine, InitiatingProcessFileName,
+              InitiatingProcessCommandLine=RegistryKey, Phase;
+//
+union proc_dumps, vss_registry
+| order by Timestamp desc
