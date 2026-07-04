@@ -1,4 +1,4 @@
-// Title: Volume Shadow Copy registry footprint from suspicious parents
+// Title: Phase 3e - Volume Shadow Copy registry footprint from suspicious parents
 // MITRE: T1003.003 (NTDS via VSS), T1006 (Direct Volume Access)
 // Data sources: DeviceRegistryEvents
 // False positive notes: Backup software (Veeam, Acronis, Windows Backup, SQL VSS writer)

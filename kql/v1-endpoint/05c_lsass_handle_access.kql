@@ -21,7 +21,7 @@
 //
 // Residual limitation: if the endpoint sensor itself is blinded (ETW-Ti patch, kernel-callback
 // removal), even this can be suppressed. Defense in depth (LSA protection / RunAsPPL, Credential
-// Guard, ELAM) is the real mitigation - see v4/12 for the registry-side of that story.
+// Guard, ELAM) is the real mitigation - see 05f for the registry-side of that story.
 
 // ---- Sysmon Event ID 10 (ProcessAccess) ------------------------------------------------------
 // Suspicious GrantedAccess masks seen in credential-dumping tools (need PROCESS_VM_READ 0x10

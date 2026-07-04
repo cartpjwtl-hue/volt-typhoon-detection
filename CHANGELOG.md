@@ -14,7 +14,7 @@ All notable changes to this detection pack will be documented in this file.
     reg save/export of SAM/SYSTEM/SECURITY
   - LSASS memory dump: comsvcs MiniDump, procdump, createdump, sqldumper, rdrleakdiag,
     WerFault abuse, nanodump/dumpert, PowerShell Out-Minidump
-  Mirrors the utility list used by the v4 registry detections (v4/02 NTDS, v4/03 VSS) and
+  Mirrors the utility list used by the Phase 3 registry detections (05d NTDS, 05e VSS) and
   adds a VSS-registry corroboration union so the process and registry layers agree.
   Includes: PowerShell-native NTDS reads (Copy-Item/Get-Content/[IO.File], DSInternals,
   Invoke-NinjaCopy), handle-duplication LSASS tools, .NET reflection / inline-compile LSASS
@@ -25,11 +25,18 @@ All notable changes to this detection pack will be documented in this file.
   unbacked (UNKNOWN) call stacks. Closes the direct-syscall / ETW-patch / reflection blind
   spot that command-line rules cannot see. Grounded in arXiv:2108.10422 (empirical EDR-evasion
   assessment).
-- `kql/v4-registry/12_lsass_cred_registry_tamper.kql` - registry-side credential-exposure &
+- `kql/v1-endpoint/05f_lsass_cred_registry_tamper.kql` - registry-side credential-exposure &
   protection tampering: WDigest `UseLogonCredential` downgrade, RunAsPPL / Credential Guard
   disable, SSP `Security Packages` injection, and password-filter `Notification Packages`.
 
 ### Changed
+- Consolidated all NTDS / credential-access detections under Phase 3 (`kql/v1-endpoint/`),
+  including the registry-based ones. Relocated from `kql/v4-registry/`:
+  `02_ntds_registry.kql -> 05d_ntds_registry.kql`, `03_vss_registry.kql -> 05e_vss_registry.kql`,
+  `12_lsass_cred_registry_tamper.kql -> 05f_lsass_cred_registry_tamper.kql`. They still consume
+  `DeviceRegistryEvents` / Sysmon 12-14. The v4-registry pack retains C2 / defense-impairment /
+  persistence / lateral-prep registry rules; file numbers 02, 03, 12 are intentionally vacated.
+  The registry capstone keeps its own inline NTDS/VSS logic and is unaffected.
 - MITRE v4 layer + CSV: T1003.001 (LSASS Memory) uplifted 1 -> 3 (behavioral + cmdline +
   registry-enabler coverage); added T1547.005 (Security Support Provider) and T1556.002
   (Password Filter DLL). Credential Access 1.62 -> 1.89, Persistence 1.20 -> 1.33.

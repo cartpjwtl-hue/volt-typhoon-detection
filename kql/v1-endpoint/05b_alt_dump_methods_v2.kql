@@ -16,8 +16,8 @@
 // SUPERSEDES the original Phase 3b (vssadmin + reg save + esentutl + comsvcs only). "Alternate
 // dump methods" is much broader than VSS: this v2 covers the full set of shadow-copy creation
 // utilities, every NTDS/hive extraction path (incl. PowerShell-native reads), and the common +
-// evasive LSASS dump techniques - and it mirrors the utility list considered by the v4 registry
-// detections (v4/02 NTDS registry, v4/03 VSS registry) so process and registry layers agree.
+// evasive LSASS dump techniques - and it mirrors the utility list considered by the Phase 3
+// registry detections (05d NTDS registry, 05e VSS registry) so process and registry layers agree.
 //
 // Scope note: destructive shadow abuse (vssadmin/wmic delete shadows, T1490) is intentionally
 // OUT of scope here - this rule is about credential access, not recovery inhibition.
@@ -109,7 +109,7 @@ let proc_dumps =
               InitiatingProcessCommandLine, Phase;
 //
 // Registry corroboration: the same shadow-copy utilities leave a VSS footprint in the registry
-// (mirrors v4/03). Surfacing it here lets the process and registry layers reinforce each other.
+// (mirrors 05e). Surfacing it here lets the process and registry layers reinforce each other.
 let vss_registry =
     DeviceRegistryEvents
     | where Timestamp > ago(lookback)

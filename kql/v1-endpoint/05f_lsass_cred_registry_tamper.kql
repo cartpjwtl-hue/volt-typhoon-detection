@@ -1,4 +1,4 @@
-// Title: LSASS credential-exposure & protection tampering via registry
+// Title: Phase 3f - LSASS credential-exposure & protection tampering via registry
 // MITRE: T1112 (Modify Registry), T1003.001 (LSASS Memory - via credential exposure),
 //        T1547.005 (Security Support Provider), T1556.002 (Password Filter DLL),
 //        T1685 (Disable or Modify Tools - LSA protection downgrade) [v19: Defense Impairment]

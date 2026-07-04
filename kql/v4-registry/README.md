@@ -19,8 +19,6 @@ ingested. Without one of those, this entire category is invisible.
 | # | File | What it catches | MITRE | Fidelity |
 |---|---|---|---|---|
 | 1 | `01_portproxy_registry.kql` | PortProxy `v*tov*` rule creation — the netsh C2 relay | T1090.001, T1112 | High |
-| 2 | `02_ntds_registry.kql` | NTDS database-path / diagnostics tampering | T1003.003, T1112 | Medium |
-| 3 | `03_vss_registry.kql` | VSS footprint from LOLBin parents | T1003.003, T1006 | Medium |
 | 4 | `04_audit_policy_tamper.kql` | Event-log channel / audit policy disabled | T1562.002, T1070.001 | High |
 | 5 | `05_defender_tamper.kql` | Defender policy flips **+ security-service disable** | T1685, T1112 | High |
 | 6 | `06_service_install.kql` | Service `ImagePath`/`ServiceDll` from staging paths | T1543.003 | Medium |
@@ -29,7 +27,14 @@ ingested. Without one of those, this entire category is invisible.
 | 9 | `09_winrm_enable.kql` | WinRM remoting / weak-auth enablement | T1021.006 | High |
 | 10 | `10_rdp_enable.kql` | RDP enabled / NLA disabled | T1021.001 | High |
 | 11 | `11_capstone_registry_chain.kql` | Weighted multi-phase registry-only kill chain | Multi | Keystone |
-| 12 | `12_lsass_cred_registry_tamper.kql` | WDigest downgrade, RunAsPPL/Credential Guard disable, SSP & password-filter DLL injection | T1112, T1003.001, T1547.005, T1556.002, T1685 | High |
+
+> **Credential-access registry detections live in Phase 3, not here.** The NTDS-registry,
+> VSS-registry, and LSASS-credential-registry (WDigest / RunAsPPL / SSP) rules are registry-based
+> but they detect *credential access*, so they are filed with the rest of Phase 3 in
+> `kql/v1-endpoint/` (`05d_ntds_registry.kql`, `05e_vss_registry.kql`,
+> `05f_lsass_cred_registry_tamper.kql`). They still require the same `DeviceRegistryEvents` /
+> Sysmon 12-14 telemetry as this pack. File numbers 02, 03 and 12 are intentionally vacated by
+> that move. The capstone (`11`) keeps its own inline NTDS/VSS registry logic, so it is unaffected.
 
 ## What makes v4 different from the draft patterns
 
@@ -52,7 +57,6 @@ points that trip up naïve registry rules and are handled here:
 | Priority | Queries | Rationale |
 |---|---|---|
 | **P1 alert now** | 01 PortProxy, 05 Defender tamper, 04 Audit tamper | Near-zero FP; disabling defenses or standing up a relay is never routine |
-| **P1 once tagged** | 02 NTDS, 03 VSS | Alert-grade after DC asset tagging / backup-agent allow-list |
 | **Alert once allow-listed** | 09 WinRM, 10 RDP | Promote after allow-listing management subnets / automation accounts |
 | **Hunt → promote** | 06 Service, 07 AutoRun, 08 Scheduled task | Run as hunts for a week, tune, then promote |
 | **Every 30 min** | 11 Capstone | Registry-only kill chain is rare and high-confidence |
@@ -63,9 +67,10 @@ Volt Typhoon is notable for **avoiding** malware-based persistence: they re-acce
 accounts (T1078) rather than dropping Run keys, services, or scheduled tasks. So queries 6–8
 are **defense-in-depth**, not VT signatures — they close documented blind spots on the coverage
 map and catch a deviation from the playbook (or a co-resident commodity actor), but you should
-not expect them to fire on a textbook Volt Typhoon operation. Queries 1, 2, 3, 9, and 10 map
-directly to documented VT tradecraft; 4 and 5 cover the defense-impairment behaviors the group
-has used to blind logging and AV.
+not expect them to fire on a textbook Volt Typhoon operation. Queries 1, 9, and 10 map directly
+to documented VT tradecraft; 4 and 5 cover the defense-impairment behaviors the group has used
+to blind logging and AV. (The credential-access registry rules that map to VT's ntds.dit theft
+now live in Phase 3 — see `kql/v1-endpoint/05d–05f`.)
 
 ## Data sources
 

@@ -1,4 +1,4 @@
-// Title: NTDS database path / diagnostics tampering via registry
+// Title: Phase 3d - NTDS database path / diagnostics tampering via registry
 // MITRE: T1003.003 (NTDS), T1112 (Modify Registry)
 // Data sources: DeviceRegistryEvents
 // False positive notes: Legitimate DC promotion (dcpromo / Install-ADDSDomainController) and
