@@ -1,0 +1,40 @@
+// Title: T1 -> T2 escalation and time-to-close metrics
+// Data sources: SecurityIncident (Microsoft Sentinel)
+// Author: detection pack maintainers
+// Date: 2026-07-10
+//
+// Measures SOC handoff efficiency for closed incidents by tracking owner changes
+// in the SecurityIncident table. Splits the incident lifecycle into two phases:
+//   - T1's time: from incident creation until the last owner change (escalation to T2)
+//   - T2's time: from that escalation until the incident was closed (T2 MTTC)
+
+let IncidentHistory = SecurityIncident
+    // Sort chronologically to track the lifecycle of each incident
+    | sort by IncidentNumber asc, TimeGenerated asc
+    | serialize
+    // Extract the owner's email/UPN from the dynamic Owner field
+    | extend CurrentOwner = tostring(Owner.userPrincipalName)
+    // Look at the previous row to see who owned it last, ensuring we are still looking at the same incident
+    | extend PrevOwner = iff(IncidentNumber == prev(IncidentNumber), tostring(prev(Owner.userPrincipalName)), "")
+    // Identify exactly when the owner changed (which indicates an assignment or escalation)
+    | extend IsOwnerChange = iff(IncidentNumber == prev(IncidentNumber) and CurrentOwner != PrevOwner and isnotempty(CurrentOwner), true, false);
+// Extract the escalation events (Handover to T2)
+let Escalations = IncidentHistory
+    | where IsOwnerChange == true
+    // If there are multiple handoffs, arg_max grabs the LAST owner change before closure
+    | summarize EscalatedTime = max(TimeGenerated), AssignedToT2 = arg_max(TimeGenerated, CurrentOwner), AssignedBy = arg_max(TimeGenerated, PrevOwner) by IncidentNumber;
+// Get the absolute start and end times for the incident
+let IncidentEndpoints = SecurityIncident
+    | summarize CreatedTime = min(TimeGenerated), ClosedTime = maxif(TimeGenerated, Status == "Closed") by IncidentNumber, Title, Severity;
+// Join the endpoints with the escalation data and calculate the distinct metrics
+IncidentEndpoints
+| join kind=inner Escalations on IncidentNumber
+| where isnotempty(ClosedTime) // Only calculate metrics on fully closed incidents
+// T1's Time: From alert creation until they assigned it to T2
+| extend T1_TimeBeforeEscalation = EscalatedTime - CreatedTime
+// T2's Time: From the exact moment T2 got it until it was closed
+| extend T2_TimeToClose = ClosedTime - EscalatedTime
+// Convert T2's time to hours for cleaner dashboard reporting
+| extend T2_MTTC_Hours = round(todouble(T2_TimeToClose) / 1h, 2)
+| project IncidentNumber, Title, Severity, CreatedTime, EscalatedTime, ClosedTime, AssignedBy_T1 = AssignedBy, AssignedTo_T2 = AssignedToT2, T1_TimeBeforeEscalation, T2_TimeToClose, T2_MTTC_Hours
+| sort by T2_MTTC_Hours desc
