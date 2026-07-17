@@ -24,10 +24,25 @@
 // Guard, ELAM) is the real mitigation - see 05f for the registry-side of that story.
 
 // ---- Sysmon Event ID 10 (ProcessAccess) ------------------------------------------------------
+// DELIBERATELY LOUD / HIGH-RECALL. Handle access to lsass is common (AV, backup, management
+// agents, and Windows itself do it), so this path intentionally returns a broad result set rather
+// than filtering hard - the goal is to miss nothing, including evasive dumps. TRIAGE by severity:
+// the `UnbackedCallStack` (UNKNOWN frames) rows are the direct-syscall / injected-code dumps and
+// should be worked first; the rest are review-grade context. Run it as a scheduled HUNT, not a
+// zero-tuning alert.
+//
+// TUNING LEVERS if you need it quieter (see the gated MDE path below for the same idea):
+//   * extend `benign_sources` with your signed AV/EDR/backup agents - this is the main allow-list;
+//   * to make it alert-grade, add a trailing filter such as
+//       `| where UnbackedCallStack or GrantedAccess == "0x1fffff"`
+//     which keeps only the unbacked-stack and full-access (PROCESS_ALL_ACCESS) hits.
+//
 // Suspicious GrantedAccess masks seen in credential-dumping tools (need PROCESS_VM_READ 0x10
 // plus query/dup rights): 0x1010, 0x1410, 0x1438, 0x143A, 0x1FFFFF, 0x1F1FFF, 0x1F2FFF, 0x1F3FFF.
 let suspicious_access = dynamic([
     "0x1010","0x1410","0x1438","0x143a","0x1f0fff","0x1f1fff","0x1f2fff","0x1f3fff","0x1fffff"]);
+// Primary allow-list / tuning lever: processes that legitimately open lsass. Add your AV/EDR/backup
+// agents here (by leaf image name, lower-case) to cut the bulk of the benign volume.
 let benign_sources = dynamic([
     "wininit.exe","csrss.exe","services.exe","lsass.exe","msmpeng.exe","mssense.exe",
     "wmiprvse.exe","taskmgr.exe","smss.exe"]);
@@ -43,9 +58,15 @@ Event
 | extend SrcName = tolower(tostring(split(SourceImage, "\\")[-1]))
 | where SrcName !in (benign_sources)
 | extend GrantedAccessLc = tolower(GrantedAccess)
+// The `has "0x1f"` clause is intentionally broad - it matches any 0x1F* mask (0x1F0FFF..0x1FFFFF),
+// i.e. anything with PROCESS_VM_READ + full query/dup rights. It is the main source of volume;
+// drop it and keep only `in (suspicious_access)` for a tighter (but lower-recall) result.
 | where GrantedAccessLc in (suspicious_access) or GrantedAccessLc has "0x1f"
-// Unbacked / UNKNOWN frames in the call stack betray direct syscalls or injected shellcode.
+// Unbacked / UNKNOWN frames in the call stack betray direct syscalls or injected shellcode -
+// these are the highest-fidelity rows and drive the Critical severity below.
 | extend UnbackedCallStack = CallTrace has "UNKNOWN" or CallTrace has "unknown"
+// Severity is a TRIAGE ORDER, not a filter: Critical (unbacked stack) first, then High. Nothing is
+// dropped here by design - that is what keeps this path high-recall.
 | extend Severity = case(UnbackedCallStack, "Critical", "High")
 | extend Technique = "T1003.001", Phase = "CredAccess-LSASS-HandleAccess"
 | project TimeGenerated, Computer, Severity, SourceImage, SourceProcessId, TargetImage,
