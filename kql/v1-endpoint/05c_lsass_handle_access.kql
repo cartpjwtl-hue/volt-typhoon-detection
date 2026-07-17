@@ -1,4 +1,4 @@
-// Title: Phase 3b (v2c) - LSASS handle access (behavioral, command-line-agnostic)
+// Title: Phase 3c - LSASS handle access, behavioral (Sysmon EID 10 + MDE DeviceEvents/ASR)
 // MITRE: T1003.001 (LSASS Memory)
 // Data sources: Sysmon Event ID 10 (ProcessAccess); Microsoft Defender DeviceEvents
 //               (ActionType "OpenProcessApiCall") is the MDE equivalent - see note below.
@@ -53,17 +53,21 @@ Event
 | order by TimeGenerated desc
 
 // ---- Microsoft Defender for Endpoint equivalent (uncomment if using DeviceEvents) ------------
-// MDE has no CallTrace field, so the "unbacked call stack -> Critical" tell from the Sysmon path
-// above cannot be reproduced. Severity here is derived instead from three signals MDE DOES expose:
-//   (1) the ASR verdict     - AsrLsassCredentialTheft{Blocked,Audited,WarnBypassed} (needs the
-//       "Block credential stealing from lsass" ASR rule deployed, even in audit mode);
-//   (2) the requested access mask - parsed out of the AdditionalFields JSON (field name varies by
-//       sensor build - inspect AdditionalFields in your tenant and adjust);
-//   (3) the initiating-process context - LOLBin / staging-path accessor.
+// ALERTING POSTURE (MDE has no CallTrace, so we split by confidence instead of using the stack):
+//   * ASR verdicts (AsrLsassCredentialTheft*) are MDE's own near-zero-FP determination -> always
+//     ALERT (ungated). They require the "Block credential stealing from lsass" ASR rule to be
+//     deployed (audit or block). High precision, imperfect recall: they miss excluded processes
+//     and some handle-dup / direct-syscall bypasses - which is why the paths below still exist.
+//   * OpenProcessApiCall against lsass is the firehose (nearly every non-system handle open), so
+//     it is GATED to a dump-capable access mask AND a LOLBin/staging-path accessor to stay
+//     alert-grade. This is what makes DumpCapable/SuspiciousInitiator do real noise-reduction work
+//     rather than just labelling. To run it as a broad HUNT for recall, delete the gate `where`.
+//   * The Sysmon EID 10 path above keeps the CallTrace-UNKNOWN tell, which catches the direct-
+//     syscall dumps ASR and this mask-based gate can miss - deploy both for defence in depth.
 // DeviceEvents
 // | where Timestamp > ago(30d)
-// | where (ActionType == "OpenProcessApiCall" and FileName =~ "lsass.exe")   // handle opened against LSASS
-//      or ActionType in ("AsrLsassCredentialTheftBlocked","AsrLsassCredentialTheftAudited","AsrLsassCredentialTheftWarnBypassed")
+// | where ActionType in ("AsrLsassCredentialTheftBlocked","AsrLsassCredentialTheftAudited","AsrLsassCredentialTheftWarnBypassed")
+//      or (ActionType == "OpenProcessApiCall" and FileName =~ "lsass.exe")
 // | where InitiatingProcessFileName !in~ (
 //     "wininit.exe","csrss.exe","services.exe","lsass.exe","MsMpEng.exe","MsSense.exe","smss.exe")
 // | extend Fields = parse_json(AdditionalFields)
@@ -76,12 +80,14 @@ Event
 //          "rundll32.exe","powershell.exe","pwsh.exe","cmd.exe","procdump.exe","procdump64.exe",
 //          "werfault.exe","taskmgr.exe","mshta.exe","regsvr32.exe","createdump.exe")
 //     or InitiatingProcessFolderPath has_any (@"\temp\", @"\appdata\", @"\programdata\", @"\public\", @"\perflogs\")
+// // >>> Noise gate: ASR rows always pass; the loud OpenProcessApiCall path must be dump-shaped AND
+// //     from a suspicious accessor. Delete this `where` to hunt broadly (everything drops to Medium).
+// | where ActionType != "OpenProcessApiCall" or (DumpCapable and SuspiciousInitiator)
 // | extend Severity = case(
 //     ActionType == "AsrLsassCredentialTheftBlocked",                                          "Critical",  // ASR blocked an actual theft attempt
 //     ActionType in ("AsrLsassCredentialTheftAudited","AsrLsassCredentialTheftWarnBypassed"),  "High",      // ASR saw it (audit / warn-bypass)
-//     DumpCapable and SuspiciousInitiator,                                                     "Critical",  // dump-rights handle from a LOLBin/staging accessor
-//     DumpCapable or SuspiciousInitiator,                                                      "High",
-//     "Medium")
+//     DumpCapable and SuspiciousInitiator,                                                     "High",      // gated OpenProcessApiCall hit
+//     "Medium")                                                                                             // only reached in hunt mode (gate removed)
 // | extend Technique = "T1003.001", Phase = "CredAccess-LSASS-HandleAccess"
 // | project Timestamp, DeviceName, Severity, ActionType, DesiredAccess, DumpCapable, SuspiciousInitiator,
 //           InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName,
