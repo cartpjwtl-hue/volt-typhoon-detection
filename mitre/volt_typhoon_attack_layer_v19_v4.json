@@ -1,0 +1,535 @@
+{
+  "name": "Volt Typhoon - TTPs & Detection Coverage v4 (Endpoint + Edge + Registry)",
+  "versions": {
+    "attack": "19",
+    "navigator": "5.2.0",
+    "layer": "4.5"
+  },
+  "domain": "enterprise-attack",
+  "description": "MITRE ATT&CK v19.1 Navigator layer for Volt Typhoon. v4 adds the registry-layer detection pack (DeviceRegistryEvents / Sysmon 12-14): PortProxy rule creation, Defender & security-service tamper, audit/event-log disable, NTDS & VSS footprint, autorun, service install, scheduled task, WinRM and RDP enablement, plus a weighted registry-only kill-chain capstone. Closes the Persistence and Defense Impairment blind spots. Scores: 3=high-fidelity/capstone, 2=single-phase detection, 1=hunting only/partial, 0=blind spot.",
+  "filters": {
+    "platforms": [
+      "Windows",
+      "Network",
+      "Linux"
+    ]
+  },
+  "sorting": 3,
+  "layout": {
+    "layout": "side",
+    "aggregateFunction": "average",
+    "showID": true,
+    "showName": true,
+    "showAggregateScores": true,
+    "countUnscored": false,
+    "expandedSubtechniques": "annotated"
+  },
+  "hideDisabled": false,
+  "gradient": {
+    "colors": [
+      "#ff6666ff",
+      "#ffe766ff",
+      "#8ec843ff"
+    ],
+    "minValue": 0,
+    "maxValue": 3
+  },
+  "legendItems": [
+    {
+      "label": "0 - Blind spot (no telemetry)",
+      "color": "#ff6666"
+    },
+    {
+      "label": "1 - Hunting only / partial",
+      "color": "#ffe766"
+    },
+    {
+      "label": "2 - Single-phase detection",
+      "color": "#b5d76b"
+    },
+    {
+      "label": "3 - High-fidelity / capstone",
+      "color": "#8ec843"
+    }
+  ],
+  "metadata": [
+    {
+      "name": "Group",
+      "value": "Volt Typhoon (G1017)"
+    },
+    {
+      "name": "Aliases",
+      "value": "BRONZE SILHOUETTE, Vanguard Panda, DEV-0391, UNC3236, Voltzite, Insidious Taurus"
+    },
+    {
+      "name": "Target Sectors",
+      "value": "US critical infrastructure - communications, energy, transportation, water"
+    },
+    {
+      "name": "Signature TTP",
+      "value": "Living-off-the-Land (LOTL), no custom malware, KV-botnet relay"
+    },
+    {
+      "name": "Detection Pack",
+      "value": "KQL v1+v2 endpoint pack + edge telemetry pack (CEF/NetFlow/DNS) + v4 registry pack"
+    },
+    {
+      "name": "ATT&CK Version",
+      "value": "v19.1 (April 2026 release with Defense Evasion split)"
+    },
+    {
+      "name": "Layer Version",
+      "value": "v4 - includes registry-layer coverage"
+    }
+  ],
+  "techniques": [
+    {
+      "techniqueID": "T1190",
+      "tactic": "initial-access",
+      "score": 2,
+      "comment": "Exploit Public-Facing Application. [v3 UPLIFT 0->2] Fortinet CVE-2022-42475 and Cisco RV320/325 exploit indicators now detected via CommonSecurityLog CEF ingestion - Edge Query 1 + Query 2.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1133",
+      "tactic": "initial-access",
+      "score": 2,
+      "comment": "External Remote Services. [v3 UPLIFT 0->2] VPN authentication from anomalous geography detected via Edge Query 3 against Fortinet/Ivanti/Cisco SSL-VPN logs.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1078",
+      "tactic": "initial-access",
+      "score": 2,
+      "comment": "Valid Accounts. [v3 UPLIFT 1->2] Cross-referenced with edge VPN auth telemetry for impossible-travel and credential-stuffing patterns.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1078.002",
+      "tactic": "initial-access",
+      "score": 2,
+      "comment": "Domain Accounts. [v3 UPLIFT] Now correlated across edge VPN auth + endpoint capstone.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1059",
+      "tactic": "execution",
+      "score": 2,
+      "comment": "Command and Scripting Interpreter - Discovery query catches cmd/wmic invocations.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1059.001",
+      "tactic": "execution",
+      "score": 3,
+      "comment": "PowerShell - covered by v2 Encoded PowerShell detection with multi-layer scoring.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1059.003",
+      "tactic": "execution",
+      "score": 2,
+      "comment": "Windows Command Shell - covered by Discovery and capstone queries.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1047",
+      "tactic": "execution",
+      "score": 3,
+      "comment": "WMI - Impacket wmiexec pattern (cmd spawned by wmiprvse + ADMIN$ output) is high-fidelity.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1053.005",
+      "tactic": "execution",
+      "score": 2,
+      "comment": "Scheduled Task. [v4 UPLIFT 1->2] TaskCache Tree/Tasks registry registration + Microsoft-folder masquerade detection (v4 Query 8).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1547.001",
+      "tactic": "persistence",
+      "score": 2,
+      "comment": "Registry Run Keys / Startup Folder. [v4 UPLIFT 0->2] Run/RunOnce + Winlogon Userinit/Shell hijack detection via DeviceRegistryEvents (v4 Query 7).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1546.003",
+      "tactic": "persistence",
+      "score": 0,
+      "comment": "WMI Event Subscription. BLIND SPOT - needs persistence query set.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1098",
+      "tactic": "persistence",
+      "score": 1,
+      "comment": "Account Manipulation. [v3 UPLIFT 0->1] Partial coverage via edge config-change detection (Query 6) - catches privilege escalation on the edge device itself.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1078.003",
+      "tactic": "persistence",
+      "score": 1,
+      "comment": "Local Accounts - account anomaly hunting.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1027",
+      "tactic": "stealth",
+      "score": 3,
+      "comment": "Obfuscated Files or Information - covered by v2 Encoded PowerShell scoring rule. [v19: moved to Stealth]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1027.010",
+      "tactic": "stealth",
+      "score": 3,
+      "comment": "Command Obfuscation - explicitly scored by Encoded PowerShell query. [v19: Stealth tactic]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1036",
+      "tactic": "stealth",
+      "score": 2,
+      "comment": "Masquerading - .gif rename trick caught by FileRenamed query. [v19: Stealth tactic]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1036.005",
+      "tactic": "stealth",
+      "score": 2,
+      "comment": "Match Legitimate Name or Location - archive renamed to image extension. [v19: Stealth]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1036.008",
+      "tactic": "stealth",
+      "score": 2,
+      "comment": "Masquerade File Type - .dit hiding as .gif. [v19: Stealth]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1218",
+      "tactic": "stealth",
+      "score": 2,
+      "comment": "System Binary Proxy Execution - wmic call create caught by capstone. [v19: Stealth tactic]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1564",
+      "tactic": "stealth",
+      "score": 0,
+      "comment": "Hide Artifacts. Not specifically covered. [v19: Stealth tactic]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1070",
+      "tactic": "defense-impairment",
+      "score": 2,
+      "comment": "Indicator Removal. [v4 UPLIFT 0->2] Event-log channel / audit policy disable via registry detected (v4 Query 4).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1070.001",
+      "tactic": "defense-impairment",
+      "score": 2,
+      "comment": "Clear Windows Event Logs. [v4 UPLIFT 0->2] Per-channel WINEVT Enabled=0 and Autologger stop detected via registry (v4 Query 4).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1685",
+      "tactic": "defense-impairment",
+      "score": 2,
+      "comment": "Disable or Modify Tools. [v4 UPLIFT 0->2] Defender policy flips + WinDefend/Sense/WdNisSvc service Start=4 disable via registry (v4 Query 5). [v19: replaces retired T1562/.001/.006]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003",
+      "tactic": "credential-access",
+      "score": 3,
+      "comment": "OS Credential Dumping - parent technique. Multiple sub-techniques covered.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003.003",
+      "tactic": "credential-access",
+      "score": 3,
+      "comment": "NTDS - ntdsutil IFM detection is high-fidelity. THE signature Volt Typhoon detection.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003.006",
+      "tactic": "credential-access",
+      "score": 3,
+      "comment": "DCSync - covered by v2 Event 4662 + Schema-Id-GUID query. Essentially zero false positives.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003.001",
+      "tactic": "credential-access",
+      "score": 3,
+      "comment": "LSASS Memory. [v4 UPLIFT 1->3] Now multi-angle: behavioral handle-access (Sysmon EID10 / MDE OpenProcessApiCall, dump-capable GrantedAccess + unbacked call stack, v1 05c), cmdline dump LOLBins incl. handle-dup & .NET reflection (v1 05b), and registry enablers - WDigest downgrade / RunAsPPL disable / SSP injection (Phase 3: 05f). Grounded in arXiv:2108.10422.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003.002",
+      "tactic": "credential-access",
+      "score": 2,
+      "comment": "Security Account Manager - reg save HKLM\\SAM in alt-dump query.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1003.004",
+      "tactic": "credential-access",
+      "score": 1,
+      "comment": "LSA Secrets - reg save HKLM\\SECURITY in alt-dump query.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1552",
+      "tactic": "credential-access",
+      "score": 0,
+      "comment": "Unsecured Credentials. Not covered.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1555",
+      "tactic": "credential-access",
+      "score": 0,
+      "comment": "Credentials from Password Stores. Not covered.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1087",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "Account Discovery - net group/net localgroup caught by Discovery query.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1087.001",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "Local Account discovery.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1087.002",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "Domain Account - net group /dom and net group Domain Admins.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1016",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "System Network Configuration Discovery - ip-api.com / ipinfo.io / ipconfig.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1018",
+      "tactic": "discovery",
+      "score": 1,
+      "comment": "Remote System Discovery - nltest, net view. Partial coverage.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1082",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "System Information Discovery - systeminfo, wmic logicaldisk.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1057",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "Process Discovery - tasklist /svc.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1049",
+      "tactic": "discovery",
+      "score": 1,
+      "comment": "System Network Connections Discovery - netstat. Partial coverage.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1033",
+      "tactic": "discovery",
+      "score": 1,
+      "comment": "System Owner/User Discovery - query user, whoami.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1069.002",
+      "tactic": "discovery",
+      "score": 2,
+      "comment": "Domain Groups - net group Domain Admins enumeration.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1021",
+      "tactic": "lateral-movement",
+      "score": 1,
+      "comment": "Remote Services - RDP/SMB usage. Partial.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1021.002",
+      "tactic": "lateral-movement",
+      "score": 2,
+      "comment": "SMB/Windows Admin Shares - Impacket pattern writing to ADMIN$.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1021.006",
+      "tactic": "lateral-movement",
+      "score": 2,
+      "comment": "Windows Remote Management. [v4 UPLIFT 1->2] WinRM AllowAutoConfig/TrustedHosts/weak-auth enablement via registry (v4 Query 9).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1570",
+      "tactic": "lateral-movement",
+      "score": 1,
+      "comment": "Lateral Tool Transfer - SMB copy. Partial via file events.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1560",
+      "tactic": "collection",
+      "score": 2,
+      "comment": "Archive Collected Data - 7zip/rar staging query.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1560.001",
+      "tactic": "collection",
+      "score": 2,
+      "comment": "Archive via Utility - 7z.exe, rar.exe with password (-mhe -p).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1005",
+      "tactic": "collection",
+      "score": 1,
+      "comment": "Data from Local System. Partial.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1090",
+      "tactic": "command-and-control",
+      "score": 3,
+      "comment": "Proxy - netsh portproxy detection plus registry corroboration.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1090.001",
+      "tactic": "command-and-control",
+      "score": 3,
+      "comment": "Internal Proxy - the signature Volt Typhoon TTP. High-fidelity coverage.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1090.003",
+      "tactic": "command-and-control",
+      "score": 2,
+      "comment": "Multi-hop Proxy. [v3 UPLIFT 1->2] KV-botnet beaconing on port 8443 detected via NetFlow Edge Query 4.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1572",
+      "tactic": "command-and-control",
+      "score": 2,
+      "comment": "Protocol Tunneling. [v3 UPLIFT 1->2] FRP/Earthworm tunneling detected via outbound 8443 anomaly + DNS DDNS query (Edge Queries 4 + 5).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1071.001",
+      "tactic": "command-and-control",
+      "score": 1,
+      "comment": "Web Protocols. [v3 UPLIFT 0->1] Partial via DNS DDNS hunting (Edge Query 5) and outbound beaconing patterns.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1105",
+      "tactic": "command-and-control",
+      "score": 0,
+      "comment": "Ingress Tool Transfer. Not covered.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1584",
+      "tactic": "resource-development",
+      "score": 1,
+      "comment": "Compromise Infrastructure. [v3 NEW] Partial via edge device config-drift detection (Query 6) catches compromised perimeter devices being repurposed.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1584.005",
+      "tactic": "resource-development",
+      "score": 1,
+      "comment": "Botnet. [v3 NEW] KV-botnet activity (Cisco/NETGEAR EOL SOHO routers, port 8443) partially detectable via NetFlow + EOL device watchlist (Edge Queries 4 + 7).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1041",
+      "tactic": "exfiltration",
+      "score": 1,
+      "comment": "Exfil over C2 Channel. [v3 UPLIFT 0->1] Partial via NetFlow byte-volume anomalies on KV-botnet beaconing channels.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1567",
+      "tactic": "exfiltration",
+      "score": 0,
+      "comment": "Exfil over Web Service. Not covered without proxy/NDR logs.",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1112",
+      "tactic": "stealth",
+      "score": 3,
+      "comment": "Modify Registry. [v4 NEW] CISA AA24-038A tags the netsh PortProxy registry modification as [T1112]; the v4 pack detects PortProxy, Defender, NTDS, audit, autorun, service, task, WinRM and RDP registry writes (v4 Queries 1-11).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1543.003",
+      "tactic": "persistence",
+      "score": 2,
+      "comment": "Windows Service. [v4 NEW] Service ImagePath/ServiceDll written from staging paths or random-named keys, incl. PsExec service pattern (v4 Query 6).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1021.001",
+      "tactic": "lateral-movement",
+      "score": 2,
+      "comment": "Remote Desktop Protocol. [v4 NEW] RDP enabled (fDenyTSConnections=0) / NLA disabled via registry (v4 Query 10).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1562.002",
+      "tactic": "defense-impairment",
+      "score": 2,
+      "comment": "Disable Windows Event Logging. [v4 NEW] EventLog channel / Autologger / LSA audit weakening via registry (v4 Query 4). [v19: survives the T1562 split as standalone Defense Impairment technique]",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1547.005",
+      "tactic": "persistence",
+      "score": 2,
+      "comment": "Security Support Provider. [v4 NEW] Malicious SSP DLL injected into LSASS via Lsa\\Security Packages registry write (Phase 3: 05f).",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1556.002",
+      "tactic": "credential-access",
+      "score": 2,
+      "comment": "Password Filter DLL. [v4 NEW] Notification Packages registry write loading a credential-capturing filter DLL (Phase 3: 05f).",
+      "enabled": true
+    }
+  ]
+}

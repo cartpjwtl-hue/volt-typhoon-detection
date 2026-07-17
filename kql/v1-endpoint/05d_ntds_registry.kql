@@ -1,0 +1,35 @@
+// Title: Phase 3d - NTDS database path / diagnostics tampering via registry
+// MITRE: T1003.003 (NTDS), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Legitimate DC promotion (dcpromo / Install-ADDSDomainController) and
+//                       AD maintenance touch NTDS\Parameters. Filter on known DC build windows
+//                       and change tickets. On a steady-state DC these writes are rare.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Corroborates the process/file ntdsutil detections (v1 04/05/06) from the registry side.
+// ntdsutil "ifm create full" and Diagnostics-level NTDS logging changes leave registry
+// footprints. A NTDS database/working-directory pointer that suddenly references Temp/Public
+// or a non-default path is a strong tampering signal.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has_any (
+    @"\Services\NTDS\Parameters",      // live AD database + working directory pointers
+    @"\Services\NTDS\Diagnostics"      // ntdsutil/diagnostic verbosity bumps
+  )
+| where ActionType in ("RegistryValueSet", "RegistryKeyCreated")
+//
+// The pointer values that matter, plus any data landing in operator-staging paths.
+| extend IsPathPointer = RegistryValueName has_any (
+    "DSA Database file", "DSA Working Directory", "Database backup path",
+    "DSA Database Epoch", "Database log files path")
+| extend SuspiciousData = RegistryValueData has_any (
+    "ntds.dit", ".dit", @"\Temp\", @"\Public\", @"\Users\", @"\PerfLogs\", @"\Windows\Tasks\")
+| where IsPathPointer or SuspiciousData
+| extend Phase = "CredAccess-NTDS-Registry"
+| project Timestamp, DeviceName, ActionType, RegistryKey, RegistryValueName,
+          RegistryValueData, PreviousRegistryValueData, IsPathPointer, SuspiciousData,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

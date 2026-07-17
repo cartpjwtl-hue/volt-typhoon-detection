@@ -1,0 +1,33 @@
+// Title: Scheduled task registered via registry (TaskCache)
+// MITRE: T1053.005 (Scheduled Task), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Software installs and Windows itself create tasks constantly. Tasks
+//                       are best triaged with Security Event 4698, but the TaskCache registry
+//                       write is the tamper-resistant corroboration. Allow-list vendor task
+//                       paths; weight non-svchost/msiexec authors and Actions blobs higher.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Every task registration writes to
+//   HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\{Tree,Tasks}
+// The Tree key holds the task's path/name; the Tasks GUID subkey holds the Actions blob
+// (the binary it runs). Tasks dropped into Microsoft-looking subfolders by a non-system
+// process are the masquerade pattern to chase.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where RegistryKey has @"\CurrentVersion\Schedule\TaskCache\"
+| where ActionType in ("RegistryKeyCreated", "RegistryValueSet")
+| where RegistryKey has_any (@"\TaskCache\Tree\", @"\TaskCache\Tasks\")
+//
+| extend TaskPath = tostring(extract(@"(?i)\\TaskCache\\Tree\\(.+)$", 1, RegistryKey))
+| extend ActionsBlobWrite = RegistryValueName in~ ("Actions", "Path")
+// Masquerade: dropping a task under a Microsoft/Windows tree from a non-system author.
+| extend MicrosoftMasquerade = TaskPath has_any (@"\Microsoft\Windows\", @"\Microsoft\", "\\System")
+    and InitiatingProcessFileName !in~ ("svchost.exe", "taskhostw.exe", "msiexec.exe", "TiWorker.exe", "services.exe")
+| where isnotempty(TaskPath) or ActionsBlobWrite
+| extend Phase = "Persistence-ScheduledTask"
+| project Timestamp, DeviceName, TaskPath, MicrosoftMasquerade, ActionType, RegistryKey,
+          RegistryValueName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

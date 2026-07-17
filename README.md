@@ -18,6 +18,7 @@ Covers the full living-off-the-land kill chain: `netsh portproxy`, `ntds.dit` th
 | `kql/v1-endpoint/` | Phase-by-phase endpoint detections (Defender XDR) |
 | `kql/v2-advanced/` | Encoded PowerShell, DCSync, cross-device capstone |
 | `kql/v3-edge/` | Edge device telemetry (Fortinet/Cisco CEF, NetFlow, DNS) |
+| `kql/v4-registry/` | Registry ground-truth detections (DeviceRegistryEvents / Sysmon 12-14) |
 | `mitre/` | ATT&CK Navigator layer JSON + coverage CSV |
 | `docs/` | Methodology, kill chain reference, deployment guide |
 | `diagrams/` | Kill chain and coverage visualizations |
@@ -29,7 +30,7 @@ Covers the full living-off-the-land kill chain: `netsh portproxy`, `ntds.dit` th
 ```bash
 # Open https://mitre-attack.github.io/attack-navigator/
 # Click "Open Existing Layer" → "Upload from local"
-# Select: mitre/volt_typhoon_attack_layer_v19_v3.json
+# Select: mitre/volt_typhoon_attack_layer_v19_v4.json
 ```
 
 ### 2. Deploy a single high-fidelity detection
@@ -56,21 +57,21 @@ See `docs/DEPLOYMENT.md` for the recommended rollout order and tuning notes.
 ```
 Tactic                       Score   Status
 ─────────────────────────────────────────────
-Execution                     2.20   ████████████  Strong
-Stealth (v19)                 2.00   ██████████░░  Strong
+Execution                     2.40   ████████████  Strong
+Stealth (v19)                 2.12   ██████████░░  Strong
 Initial access                2.00   ██████████░░  Strong (v3)
+Defense impairment (v19)      2.00   ██████████░░  Strong (v4)
+Credential access             1.89   █████████░░░  Solid (v4)
 Command & control             1.83   █████████░░░  Solid
 Discovery                     1.70   ████████░░░░  Solid
 Collection                    1.67   ████████░░░░  Solid
-Credential access             1.62   ████████░░░░  Solid
-Lateral movement              1.25   ██████░░░░░░  Partial
+Lateral movement              1.60   ████████░░░░  Solid (v4)
+Persistence                   1.33   ██████░░░░░░  Partial (v4)
 Resource development          1.00   █████░░░░░░░  Partial
-Persistence                   0.50   ██░░░░░░░░░░  Exposed
 Exfiltration                  0.50   ██░░░░░░░░░░  Exposed
-Defense impairment (v19)      0.00   ░░░░░░░░░░░░  Blind spot
 ```
 
-**58 techniques mapped • 9 high-fidelity • 23 single-phase • 16 partial • 10 blind spots**
+**64 techniques mapped • 11 high-fidelity • 34 single-phase • 13 partial • 6 blind spots**
 
 ## Detection highlights
 
@@ -83,16 +84,43 @@ Defense impairment (v19)      0.00   ░░░░░░░░░░░░  Blind
 | Encoded PowerShell scoring | Multi-layer obfuscation hunt | High |
 | Cross-device capstone | Account-based kill chain correlation | Keystone |
 | KV-botnet 8443 beaconing | NetFlow-based C2 detection | Medium |
+| PortProxy registry write | Obfuscation-proof C2 relay artifact | High |
+| Defender / EDR registry tamper | Policy flips + security-service disable | High |
+| Registry kill-chain capstone | Weighted registry-only multi-phase chain | Keystone |
 
 ## Roadmap
 
-- [x] v1 — Endpoint detections for documented LOTL techniques
-- [x] v2 — DCSync, encoded PowerShell, cross-device capstone
-- [x] v3 — Edge device telemetry (Fortinet, Cisco, NetFlow, DNS)
-- [ ] v4 — Defense Impairment pack (Event 1102/104, T1685 EDR tamper)
-- [ ] v5 — Persistence pack (WMI subscriptions, scheduled tasks)
-- [ ] Sigma rule conversions
-- [ ] Sentinel analytics rule YAML packaged ARM template
+### Delivered artifacts
+
+- [x] **v1 — Endpoint detections** (`kql/v1-endpoint/`) — Phase 1-5 LOTL kill chain: discovery, netsh
+  portproxy (process + registry), ntdsutil IFM, alt credential-dump, ntds.dit landing, .gif
+  staging masquerade, Impacket wmiexec, device capstone
+- [x] **Phase 3 credential-access expansion** (`kql/v1-endpoint/05b–05f`) — all-inclusive alternate
+  dump methods (shadow-copy / NTDS / hive / LSASS, method-classified), behavioral LSASS
+  handle-access (Sysmon EID10 / MDE `OpenProcessApiCall`, arXiv:2108.10422), and the relocated
+  registry cred-access rules (NTDS, VSS, LSASS WDigest/RunAsPPL/SSP)
+- [x] **v2 — Advanced detections** (`kql/v2-advanced/`) — DCSync (Event 4662 + MDI), encoded
+  PowerShell scoring, account-based cross-device capstone
+- [x] **v3 — Edge device telemetry** (`kql/v3-edge/`) — Fortinet/Cisco CEF exploit indicators, VPN
+  auth anomaly, KV-botnet 8443 NetFlow beaconing, DNS DDNS hunting, config drift, EOL inventory,
+  edge-to-endpoint capstone
+- [x] **v4 — Registry ground-truth pack** (`kql/v4-registry/`) — PortProxy (C2), Defender/EDR &
+  audit tamper (defense-impairment), service/autorun/scheduled-task (persistence), WinRM/RDP
+  (lateral-prep), weighted registry-only kill-chain capstone
+- [x] **MITRE ATT&CK v19.1 coverage layer** (`mitre/`) — Navigator layer JSON (v1/v2/v3/v4) +
+  coverage CSV, 64 techniques scored across 12 tactics
+- [x] **Documentation** (`docs/`) — methodology, kill-chain reference, deployment guide; kill-chain
+  and ntds-two-paths diagrams
+
+### Planned artifacts
+
+- [ ] **v5 — Event-log pack** — Event 1102/104 log-clear, 4698 scheduled task, 7045 service install,
+  4688 process create — to corroborate the registry layer from the Security/System channels
+- [ ] **WMI Event Subscription persistence** (T1546.003) — last remaining persistence blind spot
+- [ ] **`05_ntds_alt_methods.kql` back-port** — apply the comsvcs `#24` ordinal fix to the original
+  v1 query (currently only in `05b`)
+- [ ] **Sigma rule conversions** of the KQL detections
+- [ ] **Sentinel analytics rule YAML** with entity mappings, packaged as an ARM template
 
 ## Honest about limitations
 
@@ -115,6 +143,7 @@ MIT. See [LICENSE](LICENSE).
 - **Lumen Black Lotus Labs** — KV-botnet investigation
 - **Microsoft Threat Intelligence** — Volt Typhoon disclosure (May 2023)
 - **MITRE ATT&CK** — Framework and Navigator
+- **Palo Alto Unit 42** — Insidious Taurus (Volt Typhoon) threat brief, PortProxy registry path
 - Detection patterns referenced from public research by SlimKQL, cyb3rmik3, reprise99, Elastic Security, and SnareSolutions
 
 ## Contributing

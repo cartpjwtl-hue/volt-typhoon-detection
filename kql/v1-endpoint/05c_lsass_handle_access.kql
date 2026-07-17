@@ -1,0 +1,65 @@
+// Title: Phase 3b (v2c) - LSASS handle access (behavioral, command-line-agnostic)
+// MITRE: T1003.001 (LSASS Memory)
+// Data sources: Sysmon Event ID 10 (ProcessAccess); Microsoft Defender DeviceEvents
+//               (ActionType "OpenProcessApiCall") is the MDE equivalent - see note below.
+// False positive notes: A handful of benign processes legitimately open LSASS: wininit.exe,
+//                       csrss.exe, services.exe, lsass.exe (self), MsMpEng.exe (Defender),
+//                       and some EDR/AV agents. These are allow-listed. Backup/AV agents that
+//                       read process memory should be added to the allow-list per environment.
+// Tested against: Sysmon 10 schema; MITRE T1003.001 detection guidance.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// WHY THIS EXISTS (grounded in arXiv:2108.10422 - empirical EDR-evasion assessment):
+// Command-line LSASS detection (see 05b) is fundamentally evadable. Tools like Outflank
+// Dumpert dump LSASS via DIRECT SYSCALLS (NtReadVirtualMemory) and even patch the
+// EtwTiLogReadWriteVm telemetry function, so MiniDumpWriteDump runs with no telltale process
+// or command line. Reflection/handle-duplication dumpers behave the same way.
+// The durable primitive is not the command line - it is a suspicious process OPENING A HANDLE
+// to lsass.exe with dump-capable access. This rule keys on that behavior and flags an unbacked
+// (UNKNOWN) call stack, which betrays direct-syscall / injected-code execution.
+//
+// Residual limitation: if the endpoint sensor itself is blinded (ETW-Ti patch, kernel-callback
+// removal), even this can be suppressed. Defense in depth (LSA protection / RunAsPPL, Credential
+// Guard, ELAM) is the real mitigation - see 05f for the registry-side of that story.
+
+// ---- Sysmon Event ID 10 (ProcessAccess) ------------------------------------------------------
+// Suspicious GrantedAccess masks seen in credential-dumping tools (need PROCESS_VM_READ 0x10
+// plus query/dup rights): 0x1010, 0x1410, 0x1438, 0x143A, 0x1FFFFF, 0x1F1FFF, 0x1F2FFF, 0x1F3FFF.
+let suspicious_access = dynamic([
+    "0x1010","0x1410","0x1438","0x143a","0x1f0fff","0x1f1fff","0x1f2fff","0x1f3fff","0x1fffff"]);
+let benign_sources = dynamic([
+    "wininit.exe","csrss.exe","services.exe","lsass.exe","msmpeng.exe","mssense.exe",
+    "wmiprvse.exe","taskmgr.exe","smss.exe"]);
+Event
+| where TimeGenerated > ago(30d)
+| where Source == "Microsoft-Windows-Sysmon" and EventID == 10
+| parse EventData with * '"TargetImage">' TargetImage '<' *
+| parse EventData with * '"SourceImage">' SourceImage '<' *
+| parse EventData with * '"GrantedAccess">' GrantedAccess '<' *
+| parse EventData with * '"CallTrace">' CallTrace '<' *
+| parse EventData with * '"SourceProcessId">' SourceProcessId '<' *
+| where TargetImage endswith "\\lsass.exe"
+| extend SrcName = tolower(tostring(split(SourceImage, "\\")[-1]))
+| where SrcName !in (benign_sources)
+| extend GrantedAccessLc = tolower(GrantedAccess)
+| where GrantedAccessLc in (suspicious_access) or GrantedAccessLc has "0x1f"
+// Unbacked / UNKNOWN frames in the call stack betray direct syscalls or injected shellcode.
+| extend UnbackedCallStack = CallTrace has "UNKNOWN" or CallTrace has "unknown"
+| extend Severity = case(UnbackedCallStack, "Critical", "High")
+| extend Technique = "T1003.001", Phase = "CredAccess-LSASS-HandleAccess"
+| project TimeGenerated, Computer, Severity, SourceImage, SourceProcessId, TargetImage,
+          GrantedAccess, UnbackedCallStack, CallTrace, Technique, Phase
+| order by TimeGenerated desc
+
+// ---- Microsoft Defender for Endpoint equivalent (uncomment if using DeviceEvents) ------------
+// DeviceEvents
+// | where Timestamp > ago(30d)
+// | where ActionType == "OpenProcessApiCall"
+// | where FileName =~ "lsass.exe"                       // FileName = target of the handle
+// | where InitiatingProcessFileName !in~ (
+//     "wininit.exe","csrss.exe","services.exe","lsass.exe","MsMpEng.exe","MsSense.exe")
+// | extend Phase = "CredAccess-LSASS-HandleAccess"
+// | project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine,
+//           InitiatingProcessAccountName, FileName, AdditionalFields, Phase
+// | order by Timestamp desc

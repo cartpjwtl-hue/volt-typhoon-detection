@@ -1,0 +1,67 @@
+// Title: Microsoft Defender / EDR tampering via registry
+// MITRE: T1685 (Disable or Modify Tools) [v19: Defense Impairment, replaces T1562/.001/.006],
+//        T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Some EDR/AV co-install scenarios and managed exclusions are set
+//                       legitimately by svchost/MsMpEng under SYSTEM. The SYSTEM+service path
+//                       is allow-listed below. Any human/LOLBin process toggling these is worth
+//                       a look; exclusion additions especially.
+// Tested against: Elastic prebuilt "Defender Disabled via Registry" key/value set; THE DFIR Report.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Two tamper vectors in one query:
+//   (a) Defender policy/feature value flips (DisableAntiSpyware, RealtimeMonitoring, exclusions...)
+//   (b) Disabling the security SERVICE itself via Services\<svc>\Start = 4 (disabled) or 3 (manual)
+//       for WinDefend, Sense (Defender for Endpoint), WdNisSvc, WdFilter, MsMpSvc, MDCoreSvc.
+// DWORD data is rendered as decimal by some sensors and hex by others, so both forms are matched.
+
+let on  = dynamic(["1", "0x00000001"]);
+let off = dynamic(["0", "0x00000000"]);
+let svc_disabled = dynamic(["3", "0x00000003", "4", "0x00000004"]);
+//
+let defender_policy =
+    DeviceRegistryEvents
+    | where Timestamp > ago(30d)
+    | where RegistryKey has_any (
+        @"\Microsoft\Windows Defender",
+        @"\Policies\Microsoft\Windows Defender",
+        @"\Microsoft\Windows Advanced Threat Protection")   // Defender for Endpoint / Sense
+    | where ActionType == "RegistryValueSet"
+    | extend TamperAction = case(
+        RegistryValueName =~ "DisableAntiSpyware"            and RegistryValueData in (on),  "DisableDefender",
+        RegistryValueName =~ "DisableAntiVirus"             and RegistryValueData in (on),  "DisableAntivirus",
+        RegistryValueName =~ "DisableRealtimeMonitoring"    and RegistryValueData in (on),  "DisableRealtime",
+        RegistryValueName =~ "DisableBehaviorMonitoring"    and RegistryValueData in (on),  "DisableBehavior",
+        RegistryValueName =~ "DisableScriptScanning"        and RegistryValueData in (on),  "DisableScriptScan",
+        RegistryValueName =~ "DisableIOAVProtection"        and RegistryValueData in (on),  "DisableDownloadScan",
+        RegistryValueName =~ "DisableOnAccessProtection"    and RegistryValueData in (on),  "DisableOnAccess",
+        RegistryValueName =~ "TamperProtection"             and RegistryValueData in (off), "DisableTamperProtection",
+        RegistryValueName =~ "SpynetReporting"              and RegistryValueData in (off), "DisableCloudTelemetry",
+        RegistryValueName =~ "SubmitSamplesConsent"         and RegistryValueData in (off), "DisableSampleSubmit",
+        RegistryKey has @"\Exclusions\Path",                                                "AddPathExclusion",
+        RegistryKey has @"\Exclusions\Extension",                                           "AddExtExclusion",
+        RegistryKey has @"\Exclusions\Process",                                             "AddProcessExclusion",
+        "Other")
+    | where TamperAction != "Other";
+//
+let security_service_disabled =
+    DeviceRegistryEvents
+    | where Timestamp > ago(30d)
+    | where ActionType == "RegistryValueSet"
+    | where RegistryValueName =~ "Start"
+    | where RegistryKey has_any (
+        @"\Services\WinDefend\", @"\Services\Sense\", @"\Services\WdNisSvc\",
+        @"\Services\WdFilter\", @"\Services\MsMpSvc\", @"\Services\MDCoreSvc\",
+        @"\Services\SecurityHealthService\")
+    | where RegistryValueData in (svc_disabled)
+    | extend TamperAction = strcat("DisableService:", tostring(extract(@"\\Services\\([^\\]+)\\", 1, RegistryKey)));
+//
+union defender_policy, security_service_disabled
+| where InitiatingProcessAccountName !in~ ("SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE", "-")
+       or InitiatingProcessFileName !in~ ("MsMpEng.exe", "svchost.exe", "services.exe", "MsSense.exe")
+| extend Phase = "DefenseImpair-DefenderTamper"
+| project Timestamp, DeviceName, TamperAction, RegistryKey, RegistryValueName, RegistryValueData,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

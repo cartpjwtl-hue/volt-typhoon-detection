@@ -11,6 +11,11 @@ Phase-by-phase KQL detections targeting Microsoft Defender XDR and Sentinel endp
 | 3 | `03_netsh_portproxy_registry.kql` | PortProxy registry corroboration | T1090.001 | Score 3 |
 | 4 | `04_ntdsutil_ifm.kql` | ntdsutil IFM AD database theft | T1003.003 | Score 3 |
 | 5 | `05_ntds_alt_methods.kql` | vssadmin / reg save / comsvcs MiniDump | T1003 | Score 2 |
+| 5b | `05b_alt_dump_methods_v2.kql` | **All-inclusive** alt credential-dump: shadow-copy (vssadmin/diskshadow/wbadmin/wmic/PS/ntdsutil snapshot) + NTDS/hive extraction + LSASS dump LOLBins, method-classified, with VSS-registry corroboration | T1003, T1003.001-.004, T1006 | Score 2-3 |
+| 5c | `05c_lsass_handle_access.kql` | **Behavioral** LSASS handle access (Sysmon EID10 / MDE `OpenProcessApiCall`) with dump-capable `GrantedAccess` + unbacked call stack — catches direct-syscall/reflection dumps that command lines can't (arXiv:2108.10422) | T1003.001 | Score 3 |
+| 5d | `05d_ntds_registry.kql` | NTDS database-path / diagnostics tampering (registry). *Relocated from v4-registry — cred-access lives in Phase 3.* | T1003.003, T1112 | Score 2 |
+| 5e | `05e_vss_registry.kql` | VSS footprint from LOLBin parents (registry). *Relocated from v4-registry.* | T1003.003, T1006 | Score 2 |
+| 5f | `05f_lsass_cred_registry_tamper.kql` | WDigest downgrade, RunAsPPL/Credential Guard disable, SSP & password-filter DLL injection (registry). *Relocated from v4-registry.* | T1112, T1003.001, T1547.005, T1556.002, T1685 | Score 2-3 |
 | 6 | `06_ntds_file_landing.kql` | ntds.dit file written outside backup paths | T1003.003 | Score 2 |
 | 7 | `07_staging_gif_masquerade.kql` | 7zip + .gif rename trick | T1560.001, T1036.008 | Score 2 |
 | 8 | `08_impacket_wmiexec.kql` | Impacket lateral movement signature | T1047 | Score 3 |

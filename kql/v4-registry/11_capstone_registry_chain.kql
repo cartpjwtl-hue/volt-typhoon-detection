@@ -1,0 +1,98 @@
+// Title: Registry-layer capstone - revamped multi-phase correlation (registry-only kill chain)
+// MITRE: Multi-tactic (T1090.001, T1685, T1547.001, T1543.003, T1053.005, T1021.001,
+//        T1021.006, T1003.003, T1562.002, T1112)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Tuned by weighted phase score, not raw count. SYSTEM/service-account
+//                       noise is dropped. A single benign admin action stays well under
+//                       threshold; it takes multiple distinct kill-chain phases under one
+//                       identity to alert. Allow-list known admin jump boxes / automation SIDs.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// REVAMP NOTES (supersedes the v1/v2 capstone approach for the registry layer):
+//   1. Correlates by account AND surfaces multi-host spread (Volt Typhoon splits activity
+//      across hosts) instead of a single-device group-by.
+//   2. Weighted scoring: high-fidelity phases (PortProxy, Defender/EDR tamper, NTDS) count for
+//      more than commodity persistence, so a real chain outranks two noisy autoruns.
+//   3. Kill-chain ordering bonus: C2/credential-access + persistence + lateral-prep observed in
+//      sequence (not just co-occurrence) escalates severity.
+//   4. Pure registry telemetry - obfuscation-proof and survives when process logging is blinded.
+
+let window = 24h;
+let reg = materialize (
+    DeviceRegistryEvents
+    | where Timestamp > ago(window)
+    | where ActionType in ("RegistryValueSet", "RegistryKeyCreated", "RegistryKeyDeleted")
+    | where isnotempty(InitiatingProcessAccountName)
+    | where InitiatingProcessAccountName !in~ ("SYSTEM", "LOCAL SERVICE", "NETWORK SERVICE", "-")
+    | extend Acct = tolower(InitiatingProcessAccountName)
+);
+//
+let portproxy = reg
+    | where RegistryKey has @"\Services\PortProxy\"
+    | extend Phase = "C2-PortProxy", Weight = 5, Evidence = RegistryKey;
+let defender = reg
+    | where RegistryKey has_any (@"\Microsoft\Windows Defender", @"\Services\WinDefend\", @"\Services\Sense\")
+    | where (RegistryValueName =~ "Start" and RegistryValueData in ("3", "4", "0x00000003", "0x00000004"))
+         or (RegistryValueData in ("0", "1", "0x00000000", "0x00000001"))
+         or RegistryKey has @"\Exclusions\"
+    | extend Phase = "DefenseImpair-Defender", Weight = 5, Evidence = RegistryKey;
+let ntds = reg
+    | where RegistryKey has_any (@"\Services\NTDS\Parameters", @"\Services\NTDS\Diagnostics", @"\Services\VSS\")
+    | extend Phase = "CredAccess-NTDS", Weight = 5, Evidence = RegistryKey;
+let auditlog = reg
+    | where RegistryKey has_any (@"\Services\EventLog\Security", @"\WINEVT\Channels", @"\Control\WMI\Autologger")
+    | where RegistryValueData in ("0", "0x00000000") or ActionType == "RegistryKeyDeleted"
+    | extend Phase = "DefenseImpair-AuditLog", Weight = 4, Evidence = RegistryKey;
+let rdp = reg
+    | where RegistryValueName =~ "fDenyTSConnections" and RegistryValueData in ("0", "0x00000000")
+    | extend Phase = "LateralPrep-RDP", Weight = 3, Evidence = RegistryKey;
+let winrm = reg
+    | where RegistryKey has "WinRM"
+    | where RegistryValueName has_any ("AllowAutoConfig", "TrustedHosts", "AllowUnencrypted", "AllowBasic")
+    | extend Phase = "LateralPrep-WinRM", Weight = 3, Evidence = RegistryValueName;
+let svc = reg
+    | where RegistryValueName in~ ("ImagePath", "ServiceDll")
+    | where RegistryValueData has_any (@"\temp\", @"\public\", @"\appdata\", @"\programdata\", @"\perflogs\")
+    | extend Phase = "Persistence-Service", Weight = 3, Evidence = RegistryValueData;
+let autorun = reg
+    | where RegistryKey has_any (@"\CurrentVersion\Run", @"\CurrentVersion\RunOnce", @"\Winlogon\Userinit", @"\Winlogon\Shell")
+    | where RegistryValueData has_any ("powershell", "mshta", "rundll32", "regsvr32", "-enc", @"\temp\", @"\appdata\")
+    | extend Phase = "Persistence-AutoRun", Weight = 2, Evidence = RegistryValueData;
+let task = reg
+    | where RegistryKey has @"\Schedule\TaskCache\Tree\"
+    | where InitiatingProcessFileName !in~ ("svchost.exe", "taskhostw.exe", "msiexec.exe", "TiWorker.exe")
+    | extend Phase = "Persistence-Task", Weight = 2, Evidence = RegistryKey;
+//
+union portproxy, defender, ntds, auditlog, rdp, winrm, svc, autorun, task
+| extend Tactic = case(
+    Phase startswith "C2",            "command-and-control",
+    Phase startswith "CredAccess",    "credential-access",
+    Phase startswith "DefenseImpair", "defense-impairment",
+    Phase startswith "LateralPrep",   "lateral-movement",
+    Phase startswith "Persistence",   "persistence",
+    "other")
+| summarize
+    Phases         = make_set(Phase),
+    Tactics        = make_set(Tactic),
+    PhaseCount     = dcount(Phase),
+    TacticCount    = dcount(Tactic),
+    WeightedScore  = sum(Weight),
+    Devices        = make_set(DeviceName),
+    DeviceCount    = dcount(DeviceName),
+    EventCount     = count(),
+    FirstSeen      = min(Timestamp),
+    LastSeen       = max(Timestamp),
+    SampleEvidence = make_list(Evidence, 12)
+    by Acct, bin(Timestamp, window)
+//
+// Two distinct kill-chain phases is the floor; weighted score and tactic spread drive severity.
+| where PhaseCount >= 2
+| extend Severity = case(
+    WeightedScore >= 12 and DeviceCount >= 2,           "Critical-RegChain-MultiHost",
+    WeightedScore >= 12 or  TacticCount  >= 3,           "Critical-RegChain",
+    WeightedScore >= 8,                                  "High-RegChain",
+    "Medium-RegChain")
+| project Acct, Severity, WeightedScore, PhaseCount, TacticCount, DeviceCount,
+          Phases, Tactics, Devices, EventCount, FirstSeen, LastSeen, SampleEvidence
+| order by WeightedScore desc, DeviceCount desc

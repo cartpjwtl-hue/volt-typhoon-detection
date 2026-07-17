@@ -1,0 +1,35 @@
+// Title: RDP enabled / NLA disabled via registry (lateral movement prep)
+// MITRE: T1021.001 (Remote Desktop Protocol), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Provisioning tooling enables RDP legitimately on managed servers.
+//                       Allow-list build/imaging windows and management automation accounts.
+//                       NLA being disabled (UserAuthentication=0) is the higher-signal flip -
+//                       it weakens RDP and is rarely a deliberate admin choice.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// AttackIQ's AA24-038A emulation notes Volt Typhoon moving laterally via RDP after credential
+// access. Enabling RDP / weakening NLA via registry is the preparatory footprint. DWORD data
+// normalized for decimal/hex.
+
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"\Control\Terminal Server",
+    @"\Microsoft\Windows NT\CurrentVersion\Terminal Server",
+    @"\Policies\Microsoft\Windows NT\Terminal Services")
+| extend RDPChange = case(
+    RegistryValueName =~ "fDenyTSConnections" and RegistryValueData in ("0", "0x00000000"), "RDP-Enabled",
+    RegistryValueName =~ "UserAuthentication" and RegistryValueData in ("0", "0x00000000"), "NLA-Disabled",
+    RegistryValueName =~ "SecurityLayer"      and RegistryValueData in ("0", "0x00000000"), "SecurityLayer-Lowered",
+    RegistryValueName =~ "AllowRemoteRPC"     and RegistryValueData in ("1", "0x00000001"), "RemoteRPC-Enabled",
+    RegistryValueName =~ "fSingleSessionPerUser" and RegistryValueData in ("0", "0x00000000"), "MultiSession-Enabled",
+    "Other")
+| where RDPChange != "Other"
+| extend Severity = case(RDPChange in ("NLA-Disabled", "SecurityLayer-Lowered"), "High", "Medium")
+| extend Phase = "LateralPrep-RDP"
+| project Timestamp, DeviceName, Severity, RDPChange, RegistryKey, RegistryValueName,
+          RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc

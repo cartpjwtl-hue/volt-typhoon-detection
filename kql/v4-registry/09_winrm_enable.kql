@@ -1,0 +1,35 @@
+// Title: WinRM / PowerShell remoting enabled via registry (lateral movement prep)
+// MITRE: T1021.006 (Windows Remote Management), T1112 (Modify Registry)
+// Data sources: DeviceRegistryEvents
+// False positive notes: Management tooling (SCCM, Ansible, DSC) and `Enable-PSRemoting` on
+//                       managed hosts set these legitimately. Allow-list management subnets /
+//                       service accounts. AllowUnencrypted and Basic auth being enabled are the
+//                       highest-signal flips - those weaken the channel and are rarely intentional.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Enabling WinRM widens the lateral-movement surface. DWORD data normalized for decimal/hex.
+
+let on = dynamic(["1", "0x00000001"]);
+DeviceRegistryEvents
+| where Timestamp > ago(30d)
+| where ActionType == "RegistryValueSet"
+| where RegistryKey has_any (
+    @"\Services\WinRM\",
+    @"\Microsoft\Windows\WinRM\Service",
+    @"\Microsoft\Windows\WinRM\Client",
+    @"\Policies\Microsoft\Windows\WinRM\")
+| extend EnabledRemoting = case(
+    RegistryValueName =~ "AllowAutoConfig"  and RegistryValueData in (on), "AutoConfigEnabled",
+    RegistryValueName =~ "AllowUnencrypted" and RegistryValueData in (on), "UnencryptedAllowed",
+    RegistryValueName =~ "AllowBasic"       and RegistryValueData in (on), "BasicAuthEnabled",
+    RegistryValueName =~ "TrustedHosts"     and isnotempty(RegistryValueData), "TrustedHostsSet",
+    RegistryValueName =~ "Start"            and RegistryKey has @"\Services\WinRM\" and RegistryValueData in ("2", "0x00000002"), "ServiceAutoStart",
+    "Other")
+| where EnabledRemoting != "Other"
+| extend Severity = case(EnabledRemoting in ("UnencryptedAllowed", "BasicAuthEnabled"), "High", "Medium")
+| extend Phase = "LateralPrep-WinRM"
+| project Timestamp, DeviceName, Severity, EnabledRemoting, RegistryKey, RegistryValueName,
+          RegistryValueData, InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc
