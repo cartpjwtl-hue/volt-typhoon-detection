@@ -1,0 +1,30 @@
+// Title: Scheduled task created / modified (Event 4698 / 4702)
+// MITRE: T1053.005 (Scheduled Task)
+// Data sources: SecurityEvent (Windows Security channel; requires Object Access > Other Object
+//               Access Events auditing, or Task Scheduler Operational log)
+// False positive notes: Software installs and admins create tasks. This surfaces tasks whose
+//                       action runs a LOLBin/script or lands in a user-writable path, and tasks
+//                       masquerading under Microsoft/Windows task folders. Allow-list vendor tasks.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The Security-channel corroboration for the registry TaskCache rule (v4/08). Event 4698 embeds
+// the full task XML (TaskContent) - including the Command/Arguments of the action - so we can
+// score on what the task actually runs, not just that a task appeared.
+
+SecurityEvent
+| where TimeGenerated > ago(30d)
+| where EventID in (4698, 4702)   // 4698 = created, 4702 = updated
+| extend TaskName = column_ifexists("TaskName", "")
+| extend TaskContent = tolower(coalesce(column_ifexists("TaskContent", ""), EventData))
+| extend SuspiciousAction = TaskContent has_any (
+    "powershell", "cmd.exe", "cmd /c", "mshta", "rundll32", "regsvr32", "wscript", "cscript",
+    "-enc", "-encodedcommand", "frombase64string", "downloadstring",
+    @"\temp\", @"\appdata\", @"\public\", @"\programdata\", @"\perflogs\")
+| extend Masquerade = TaskName has_any (@"\Microsoft\Windows\", "\\Updates\\", "\\System")
+| where SuspiciousAction or Masquerade
+| extend Phase = "Persistence-ScheduledTask"
+| project TimeGenerated, Computer, EventID, TaskName,
+          SubjectUserName = column_ifexists("SubjectUserName", ""),
+          SuspiciousAction, Masquerade, Phase
+| order by TimeGenerated desc

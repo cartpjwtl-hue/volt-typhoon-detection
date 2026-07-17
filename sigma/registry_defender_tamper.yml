@@ -1,0 +1,46 @@
+title: Microsoft Defender Disabled via Registry
+id: 32119fba-7f86-452a-b6ba-3d450d77b3ec
+status: experimental
+description: |
+    Detects registry modifications that disable Microsoft Defender protections (DisableAntiSpyware,
+    real-time / behavior monitoring, tamper protection) or disable the WinDefend/Sense service via
+    its Start value.
+references:
+    - https://thedfirreport.com/2020/12/13/defender-control/
+    - https://attack.mitre.org/techniques/T1562/001/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.defense-evasion
+    - attack.t1562.001
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection_policy:
+        TargetObject|contains: '\Microsoft\Windows Defender'
+        TargetObject|endswith:
+            - 'DisableAntiSpyware'
+            - 'DisableAntiVirus'
+            - 'DisableRealtimeMonitoring'
+            - 'DisableBehaviorMonitoring'
+            - 'DisableScriptScanning'
+            - 'TamperProtection'
+        Details:
+            - 'DWORD (0x00000001)'
+            - '1'
+    selection_service:
+        TargetObject|contains:
+            - '\Services\WinDefend\Start'
+            - '\Services\Sense\Start'
+            - '\Services\WdNisSvc\Start'
+        Details:
+            - 'DWORD (0x00000004)'
+            - 'DWORD (0x00000003)'
+            - '4'
+            - '3'
+    condition: selection_policy or selection_service
+falsepositives:
+    - Some AV co-install / managed exclusion scenarios under SYSTEM
+level: high

@@ -1,0 +1,31 @@
+// Title: Suspicious PowerShell script block (Event 4104)
+// MITRE: T1059.001 (PowerShell), T1027.010 (Command Obfuscation) [v19: Stealth]
+// Data sources: Event / Microsoft-Windows-PowerShell Operational (requires Script Block Logging)
+// False positive notes: Admin automation and some management agents log script blocks. This keys
+//                       on high-signal combinations (download+exec, reflection, AMSI bypass,
+//                       credential-dump primitives). Baseline your automation before alerting.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The event-log-native corroboration for the v2 encoded-PowerShell detection. Script Block
+// Logging (4104) captures the DECODED content even when -EncodedCommand was used, so it sees
+// through the obfuscation that command-line-only rules miss. Ties LSASS-reflection dumps (v1/05c)
+// and download-cradles back to the operator's actual script.
+
+Event
+| where TimeGenerated > ago(30d)
+| where Source == "Microsoft-Windows-PowerShell" and EventID == 4104
+| extend Script = tolower(coalesce(column_ifexists("ScriptBlockText", ""), EventData))
+| extend Score =
+      (toint(Script has_any ("downloadstring","downloadfile","frombase64string","::readallbytes")))
+    + (toint(Script has_any ("invoke-expression","iex ")))
+    + (toint(Script has_any ("amsiutils","amsiinitfailed")))
+    + (toint(Script has_any ("reflection.assembly","getdelegateforfunctionpointer","minidumpwritedump")))
+    + (toint(Script has_any ("comsvcs","lsass","invoke-mimikatz","invoke-ninjacopy","get-addbaccount")))
+    + (toint(Script has_any ("-enc ","-encodedcommand","hidden","nop -w","-w hidden")))
+| where Score >= 2
+| extend Severity = case(Score >= 4, "Critical", Score == 3, "High", "Medium")
+| extend Phase = "Execution-EncodedPowerShell"
+| project TimeGenerated, Computer, EventID, Score, Severity,
+          ScriptExcerpt = substring(Script, 0, 512), Phase
+| order by Score desc, TimeGenerated desc

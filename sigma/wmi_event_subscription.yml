@@ -1,0 +1,40 @@
+title: WMI Permanent Event Subscription Persistence
+id: 7cd0b3d2-9e9f-468f-bde3-9c0c494abcb9
+status: experimental
+description: |
+    Detects registration of a WMI FilterToConsumer binding with a code-executing consumer
+    (CommandLineEventConsumer / ActiveScriptEventConsumer) - a reboot-surviving, SYSTEM-level,
+    fileless persistence mechanism. Uses Sysmon WMI events (19 filter, 20 consumer, 21 binding).
+references:
+    - https://attack.mitre.org/techniques/T1546/003/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1546.003
+logsource:
+    product: windows
+    category: wmi_event
+detection:
+    selection_consumer:
+        Consumer|contains:
+            - 'CommandLineEventConsumer'
+            - 'ActiveScriptEventConsumer'
+    selection_action:
+        Destination|contains:
+            - 'powershell'
+            - 'cmd.exe'
+            - 'mshta'
+            - 'rundll32'
+            - 'regsvr32'
+            - 'wscript'
+            - 'cscript'
+            - 'scrcons'
+            - '-enc'
+            - 'FromBase64String'
+            - 'DownloadString'
+    condition: selection_consumer or selection_action
+falsepositives:
+    - SCCM and some OEM management agents register permanent subscriptions; allow-list them
+level: high

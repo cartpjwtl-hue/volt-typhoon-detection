@@ -1,0 +1,31 @@
+title: NTDS.dit Theft via ntdsutil Install-From-Media
+id: 94ef5291-844e-4e22-914b-ff72c424a5f7
+status: experimental
+description: |
+    Detects ntdsutil creating an Install-From-Media (IFM) full copy, the signature Volt Typhoon
+    method for stealing the Active Directory password database (ntds.dit) from a domain controller.
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a
+    - https://attack.mitre.org/techniques/T1003/003/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.credential-access
+    - attack.t1003.003
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        - Image|endswith: '\ntdsutil.exe'
+        - CommandLine|contains: 'ntdsutil'
+    selection_cli:
+        CommandLine|contains:
+            - 'ifm'
+            - 'create full'
+            - 'ac i ntds'
+            - 'activate instance ntds'
+    condition: selection_img and selection_cli
+falsepositives:
+    - Legitimate domain controller promotion / IFM media creation during a change window
+level: high

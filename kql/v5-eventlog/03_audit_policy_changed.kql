@@ -1,0 +1,28 @@
+// Title: Audit policy changed / auditing disabled (Event 4719, 1102-adjacent)
+// MITRE: T1562.002 (Disable Windows Event Logging) [v19: Defense Impairment]
+// Data sources: SecurityEvent (Windows Security channel)
+// False positive notes: GPO changes and legitimate hardening trigger 4719. Filter on the
+//                       subcategories being set to "no auditing" (Failure/Success removed), and
+//                       weight non-GPO source. Baseline your environment's normal policy changes.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Security-channel corroboration for the registry audit-tamper rule (v4/04). Event 4719 fires
+// when the system audit policy changes; an operator disabling a subcategory (e.g. "Detailed
+// Tracking > Process Creation") blinds later detection. Pairs with 1102 to reveal the classic
+// "disable auditing, then clear the log" sequence.
+
+SecurityEvent
+| where TimeGenerated > ago(30d)
+| where EventID == 4719
+| extend Sub = column_ifexists("AuditPolicyChanges", "")
+// "%%8448" = Failure removed, "%%8446" = Success removed (auditing being turned OFF)
+| extend AuditingDisabled = Sub has_any ("8448", "8450", "Failure removed", "Success removed", "removed")
+| where AuditingDisabled
+| extend Phase = "DefenseImpair-AuditPolicy"
+| project TimeGenerated, Computer, EventID, Activity,
+          SubjectUserName = column_ifexists("SubjectUserName", ""),
+          CategoryId = column_ifexists("CategoryId", ""),
+          SubcategoryGuid = column_ifexists("SubcategoryGuid", ""),
+          AuditPolicyChanges = Sub, Phase
+| order by TimeGenerated desc

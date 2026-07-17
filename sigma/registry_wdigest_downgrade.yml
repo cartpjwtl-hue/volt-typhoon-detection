@@ -1,0 +1,28 @@
+title: WDigest UseLogonCredential Downgrade (Plaintext Creds in LSASS)
+id: 2240ad0b-7935-42cf-84f6-cbcfd57f8c90
+status: experimental
+description: |
+    Detects enabling WDigest UseLogonCredential, which forces reversible/plaintext credentials to
+    be cached in LSASS so they can be recovered by a subsequent memory dump.
+references:
+    - https://attack.mitre.org/techniques/T1112/
+    - https://attack.mitre.org/techniques/T1003/001/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|endswith: '\SecurityProviders\WDigest\UseLogonCredential'
+        Details:
+            - 'DWORD (0x00000001)'
+            - '1'
+    condition: selection
+falsepositives:
+    - Legacy application requirements (should be rare and documented)
+level: high

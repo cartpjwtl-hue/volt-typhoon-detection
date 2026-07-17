@@ -1,0 +1,29 @@
+// Title: Security service start-type changed to disabled (Event 7040)
+// MITRE: T1685 (Disable or Modify Tools) [v19: Defense Impairment], T1489 (Service Stop-adjacent)
+// Data sources: Event (System channel, Service Control Manager)
+// False positive notes: Admins/patching occasionally change service start types. This filters to
+//                       SECURITY services being set to disabled/manual, which is rarely benign.
+//                       Allow-list documented maintenance windows.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// System-channel corroboration for the registry Defender-service-disable rule (v4/05). Event 7040
+// fires when a service start type changes; targeting WinDefend / Sense / WdNisSvc / EDR agents is
+// the tell that an operator is blinding endpoint defenses via SCM rather than the raw registry.
+
+let security_services = dynamic([
+    "windefend", "sense", "wdnissvc", "wdfilter", "mpssvc", "wscsvc", "securityhealthservice",
+    "sysmon", "sysmon64", "eventlog", "mssense"]);
+Event
+| where TimeGenerated > ago(30d)
+| where Source == "Service Control Manager" and EventID == 7040
+| parse EventData with * '"param1">' ServiceDisplay '<' *
+| parse EventData with * '"param4">' NewStartType '<' *
+| parse EventData with * '"param2">' OldStartType '<' *
+| extend SvcLc = tolower(ServiceDisplay)
+| where SvcLc has_any (security_services)
+    or SvcLc has_any ("defender", "endpoint protection", "antivirus", "event log")
+| where NewStartType has_any ("disabled", "demand start", "manual")
+| extend Phase = "DefenseImpair-ServiceDisable"
+| project TimeGenerated, Computer, EventID, ServiceDisplay, OldStartType, NewStartType, Phase
+| order by TimeGenerated desc

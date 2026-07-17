@@ -1,0 +1,35 @@
+title: Netsh PortProxy Rule Creation (Volt Typhoon C2 Relay)
+id: 1e4c2533-338b-4aa9-b942-bf0dd2a5b42a
+status: experimental
+description: |
+    Detects use of netsh to create an interface portproxy rule, the signature Volt Typhoon
+    technique for turning a compromised host into a TCP relay for C2 without dropping malware.
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a
+    - https://attack.mitre.org/techniques/T1090/001/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.command-and-control
+    - attack.t1090.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        - Image|endswith: '\netsh.exe'
+        - OriginalFileName: 'netsh.exe'
+    selection_cli:
+        CommandLine|contains|all:
+            - 'interface'
+            - 'portproxy'
+    selection_add:
+        CommandLine|contains:
+            - 'v4tov4'
+            - 'v4tov6'
+            - 'v6tov4'
+            - 'v6tov6'
+    condition: selection_img and (selection_cli or selection_add)
+falsepositives:
+    - Load-balancer admins or developers tunneling for testing (rare; usually scripted)
+level: high

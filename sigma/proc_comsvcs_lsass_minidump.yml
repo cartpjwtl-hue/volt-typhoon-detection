@@ -1,0 +1,33 @@
+title: LSASS Dump via comsvcs.dll MiniDump (incl. #24 Ordinal)
+id: a9c5341e-e144-4060-af6b-cb4b366e3327
+status: experimental
+description: |
+    Detects rundll32 invoking the MiniDump export of comsvcs.dll to dump LSASS memory. Matches
+    both the 'MiniDump' export name and the '#24' / '#+24' ordinal that evades string-based checks.
+references:
+    - https://attack.mitre.org/techniques/T1003/001/
+    - https://www.microsoft.com/en-us/security/blog/2022/10/05/detecting-and-preventing-lsass-credential-dumping-attacks/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection_img:
+        - Image|endswith: '\rundll32.exe'
+        - OriginalFileName: 'RUNDLL32.EXE'
+    selection_dll:
+        CommandLine|contains: 'comsvcs.dll'
+    selection_call:
+        CommandLine|contains:
+            - 'MiniDump'
+            - '#24'
+            - '#+24'
+            - '# 24'
+    condition: selection_img and selection_dll and selection_call
+falsepositives:
+    - Extremely rare; comsvcs MiniDump is almost never used legitimately
+level: high

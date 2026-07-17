@@ -1,0 +1,32 @@
+// Title: Service installed (Event 7045 System / 4697 Security)
+// MITRE: T1543.003 (Windows Service), T1569.002 (Service Execution)
+// Data sources: Event (System channel, Service Control Manager); SecurityEvent (4697)
+// False positive notes: Software installs create services. This keys on suspicious image path
+//                       (temp/user-writable), random service names, or PsExec/remote-exec service
+//                       patterns. Allow-list known vendor services and signed installers.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The Security/System-channel corroboration for the registry service-install rule (v4/06). Event
+// 7045 (SCM) records the service name and ImagePath at install time; 4697 is the Security-channel
+// equivalent. High-value for catching PsExec (PSEXESVC), Impacket services, and remote-exec.
+
+Event
+| where TimeGenerated > ago(30d)
+| where Source == "Service Control Manager" and EventID == 7045
+| parse EventData with * '"ServiceName">' ServiceName '<' *
+| parse EventData with * '"ImagePath">' ImagePath '<' *
+| parse EventData with * '"ServiceType">' ServiceType '<' *
+| parse EventData with * '"StartType">' StartType '<' *
+| extend ImagePathLc = tolower(ImagePath)
+| extend SuspiciousPath = ImagePathLc has_any (
+    @"\temp\", @"\public\", @"\appdata\", @"\programdata\", @"\users\",
+    @"\windows\debug\", @"\perflogs\", @"\windows\tasks\")
+| extend LolbinService = ImagePathLc has_any ("powershell", "cmd /c", "cmd.exe /c", "rundll32", "regsvr32", "mshta", "-enc")
+| extend PsExecLike = ServiceName has_any ("PSEXESVC", "PAExec") or ImagePathLc has_any ("psexesvc", "paexec")
+| extend RandomName = ServiceName matches regex @"^[a-zA-Z0-9]{8,16}$"
+| where SuspiciousPath or LolbinService or PsExecLike or RandomName
+| extend Phase = "Persistence-ServiceInstall"
+| project TimeGenerated, Computer, EventID, ServiceName, ImagePath, ServiceType, StartType,
+          SuspiciousPath, LolbinService, PsExecLike, RandomName, Phase
+| order by TimeGenerated desc

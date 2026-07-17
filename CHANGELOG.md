@@ -2,7 +2,29 @@
 
 All notable changes to this detection pack will be documented in this file.
 
-## [Unreleased] - 2026-06-27
+## [v5.0] - 2026-06-27
+
+### Added
+- **Event-log detection pack** (`kql/v5-eventlog/`) - Security/System channel corroboration that
+  works without Defender endpoint tables (WEF / Azure Monitor Agent): Security log clear (1102),
+  other-log clear (104), audit-policy disable (4719), service install (7045/4697), scheduled task
+  (4698/4702), security-service disable (7040), PowerShell script block (4104), and an event-log
+  capstone.
+- **WMI Event Subscription persistence** (`kql/v5-eventlog/08`, T1546.003) - WMI-Activity 5861 /
+  Sysmon 19-21 detection of FilterToConsumer bindings with code-executing consumers. Closes the
+  last persistence blind spot.
+- **Sigma rule conversions** (`sigma/`) - 10 vendor-neutral rules across process_creation,
+  registry_set, process_access, event-log, and wmi_event sources.
+- **Sentinel analytics rules** (`sentinel/`) - scheduled-rule YAML with Host/Account/Process entity
+  mappings + an ARM template (`deploy_analytics_rules.json`) that deploys them into a workspace.
+
+### Changed
+- MITRE layer + CSV: T1546.003 (WMI Event Subscription) uplifted 0 -> 2. Persistence 1.33 -> 1.67;
+  blind spots 6 -> 5; single-phase 34 -> 35.
+- `kql/v1-endpoint/05_ntds_alt_methods.kql` - back-ported the comsvcs `#24` / `#+24` ordinal
+  evasion fix (previously only in `05b`).
+
+## [Unreleased-cred-access] - 2026-06-27
 
 ### Added
 - `kql/v1-endpoint/05b_alt_dump_methods_v2.kql` - all-inclusive rewrite of Phase 3b.

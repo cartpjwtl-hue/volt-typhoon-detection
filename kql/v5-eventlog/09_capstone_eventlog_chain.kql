@@ -1,0 +1,51 @@
+// Title: Event-log capstone - multi-phase correlation from Security/System channels
+// MITRE: Multi-tactic (T1070.001, T1562.002, T1543.003, T1053.005, T1546.003, T1685)
+// Data sources: SecurityEvent, Event (System / PowerShell / WMI-Activity channels)
+// False positive notes: Tuned by distinct-phase count per host in a 24h window. A single admin
+//                       action stays under threshold; it takes multiple defense-impairment /
+//                       persistence phases together to alert. Allow-list admin jump boxes.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The event-log analogue of the v1/v4 capstones. Correlates the channel-native signals - log
+// clears, audit-policy disables, service installs, scheduled tasks, WMI subscriptions - by host.
+// Because these come from the Security/System channels (not Defender), this capstone still fires
+// in environments without MDE/Sysmon endpoint tables.
+
+let window = 24h;
+let logclear = SecurityEvent | where TimeGenerated > ago(window) | where EventID == 1102
+    | project TimeGenerated, Computer, Phase="DefenseImpair-LogClear", Weight=4;
+let logclear2 = Event | where TimeGenerated > ago(window)
+    | where Source == "Microsoft-Windows-Eventlog" and EventID == 104
+    | project TimeGenerated, Computer, Phase="DefenseImpair-LogClear", Weight=4;
+let auditoff = SecurityEvent | where TimeGenerated > ago(window) | where EventID == 4719
+    | project TimeGenerated, Computer, Phase="DefenseImpair-AuditPolicy", Weight=4;
+let svcinstall = Event | where TimeGenerated > ago(window)
+    | where Source == "Service Control Manager" and EventID == 7045
+    | project TimeGenerated, Computer, Phase="Persistence-Service", Weight=3;
+let svcdisable = Event | where TimeGenerated > ago(window)
+    | where Source == "Service Control Manager" and EventID == 7040
+    | where tolower(EventData) has_any ("windefend","sense","wdnissvc","defender","sysmon","eventlog")
+    | project TimeGenerated, Computer, Phase="DefenseImpair-ServiceDisable", Weight=4;
+let task = SecurityEvent | where TimeGenerated > ago(window) | where EventID in (4698,4702)
+    | project TimeGenerated, Computer, Phase="Persistence-Task", Weight=2;
+let wmi = Event | where TimeGenerated > ago(window)
+    | where Source == "Microsoft-Windows-WMI-Activity" and EventID == 5861
+    | project TimeGenerated, Computer, Phase="Persistence-WMISubscription", Weight=3;
+//
+union logclear, logclear2, auditoff, svcinstall, svcdisable, task, wmi
+| summarize
+    Phases        = make_set(Phase),
+    PhaseCount    = dcount(Phase),
+    WeightedScore = sum(Weight),
+    EventCount    = count(),
+    FirstSeen     = min(TimeGenerated),
+    LastSeen      = max(TimeGenerated)
+    by Computer, bin(TimeGenerated, window)
+| where PhaseCount >= 2
+| extend Severity = case(
+    WeightedScore >= 10, "Critical-EventLogChain",
+    WeightedScore >= 7,  "High-EventLogChain",
+    "Medium-EventLogChain")
+| project Computer, Severity, WeightedScore, PhaseCount, Phases, EventCount, FirstSeen, LastSeen
+| order by WeightedScore desc

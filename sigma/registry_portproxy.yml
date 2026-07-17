@@ -1,0 +1,30 @@
+title: PortProxy Registry Rule Creation
+id: 8a9c80fa-806c-407a-bbdf-9af79c8393d9
+status: experimental
+description: |
+    Detects creation of a PortProxy v*tov* registry value, the obfuscation-proof artifact written
+    by 'netsh interface portproxy add' regardless of how netsh was invoked.
+references:
+    - https://www.cisa.gov/news-events/cybersecurity-advisories/aa24-038a
+    - https://attack.mitre.org/techniques/T1090/001/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.command-and-control
+    - attack.t1090.001
+    - attack.t1112
+logsource:
+    category: registry_set
+    product: windows
+detection:
+    selection:
+        TargetObject|contains: '\Services\PortProxy\'
+        TargetObject|contains:
+            - 'v4tov4'
+            - 'v4tov6'
+            - 'v6tov4'
+            - 'v6tov6'
+    condition: selection
+falsepositives:
+    - Load-balancer / tunneling admin activity accompanied by a change ticket (rare)
+level: high

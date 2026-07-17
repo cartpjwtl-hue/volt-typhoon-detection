@@ -1,0 +1,41 @@
+id: c88f0a86-e831-4616-873c-c0ecfb5cce03
+name: Volt Typhoon - NTDS.dit Theft via ntdsutil IFM
+description: |
+  'Detects ntdsutil creating an Install-From-Media full copy - the signature Volt Typhoon method
+  for stealing the Active Directory password database (ntds.dit) from a domain controller.'
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: MicrosoftThreatProtection
+    dataTypes:
+      - DeviceProcessEvents
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1003.003
+query: |
+  DeviceProcessEvents
+  | where (FileName =~ "ntdsutil.exe") or (ProcessCommandLine has "ntdsutil")
+  | where ProcessCommandLine has_any ("ifm","create full","ac i ntds","activate instance ntds")
+  | extend OutputPath = extract(@"create full\s+([A-Za-z]:\\[^\""]+)", 1, ProcessCommandLine)
+  | project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine, OutputPath,
+            InitiatingProcessFileName, InitiatingProcessCommandLine
+entityMappings:
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: DeviceName
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: AccountName
+  - entityType: Process
+    fieldMappings:
+      - identifier: CommandLine
+        columnName: ProcessCommandLine
+version: 1.0.0
+kind: Scheduled

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Deploys Volt Typhoon detection pack scheduled analytics rules into a Microsoft Sentinel workspace."
+  },
+  "parameters": {
+    "workspaceName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name of the Log Analytics workspace that has Microsoft Sentinel enabled."
+      }
+    },
+    "rulesEnabled": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Whether the deployed analytics rules are enabled on creation."
+      }
+    }
+  },
+  "variables": {
+    "apiVersion": "2023-02-01-preview"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "[variables('apiVersion')]",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', 'e4173392-c6c8-4fba-9853-51125f723c1d')]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Volt Typhoon - PortProxy Registry Rule Creation",
+        "description": "PortProxy v*tov* registry value created - the obfuscation-proof netsh C2 relay artifact.",
+        "severity": "High",
+        "enabled": "[parameters('rulesEnabled')]",
+        "query": "DeviceRegistryEvents\n| where RegistryKey has @\"\\Services\\PortProxy\\\"\n| where RegistryKey has_any (@\"\\v4tov4\", @\"\\v4tov6\", @\"\\v6tov4\", @\"\\v6tov6\")\n| where ActionType in (\"RegistryValueSet\",\"RegistryKeyCreated\")\n| project Timestamp, DeviceName, RegistryKey, RegistryValueName, RegistryValueData, InitiatingProcessAccountName, InitiatingProcessCommandLine",
+        "queryFrequency": "PT1H",
+        "queryPeriod": "PT1H",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": [ "CommandAndControl", "DefenseEvasion" ],
+        "techniques": [ "T1090", "T1112" ],
+        "entityMappings": [
+          { "entityType": "Host", "fieldMappings": [ { "identifier": "HostName", "columnName": "DeviceName" } ] },
+          { "entityType": "Account", "fieldMappings": [ { "identifier": "Name", "columnName": "InitiatingProcessAccountName" } ] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "[variables('apiVersion')]",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', 'c88f0a86-e831-4616-873c-c0ecfb5cce03')]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Volt Typhoon - NTDS.dit Theft via ntdsutil IFM",
+        "description": "ntdsutil Install-From-Media full copy - signature Volt Typhoon AD database theft.",
+        "severity": "High",
+        "enabled": "[parameters('rulesEnabled')]",
+        "query": "DeviceProcessEvents\n| where (FileName =~ \"ntdsutil.exe\") or (ProcessCommandLine has \"ntdsutil\")\n| where ProcessCommandLine has_any (\"ifm\",\"create full\",\"ac i ntds\",\"activate instance ntds\")\n| project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine, InitiatingProcessCommandLine",
+        "queryFrequency": "PT1H",
+        "queryPeriod": "PT1H",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": [ "CredentialAccess" ],
+        "techniques": [ "T1003" ],
+        "entityMappings": [
+          { "entityType": "Host", "fieldMappings": [ { "identifier": "HostName", "columnName": "DeviceName" } ] },
+          { "entityType": "Account", "fieldMappings": [ { "identifier": "Name", "columnName": "AccountName" } ] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "[variables('apiVersion')]",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', '2b435e91-0bb2-40f6-ba55-d5a06ae337b7')]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Volt Typhoon - LSASS Dump via comsvcs MiniDump",
+        "description": "rundll32 comsvcs.dll MiniDump against LSASS, including the #24 ordinal evasion.",
+        "severity": "High",
+        "enabled": "[parameters('rulesEnabled')]",
+        "query": "DeviceProcessEvents\n| where FileName =~ \"rundll32.exe\"\n| where ProcessCommandLine has \"comsvcs.dll\"\n| where ProcessCommandLine has_cs \"MiniDump\" or ProcessCommandLine has_any (\"#24\",\"#+24\",\"# 24\")\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, InitiatingProcessCommandLine",
+        "queryFrequency": "PT1H",
+        "queryPeriod": "PT1H",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": [ "CredentialAccess" ],
+        "techniques": [ "T1003" ],
+        "entityMappings": [
+          { "entityType": "Host", "fieldMappings": [ { "identifier": "HostName", "columnName": "DeviceName" } ] },
+          { "entityType": "Account", "fieldMappings": [ { "identifier": "Name", "columnName": "AccountName" } ] }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      "apiVersion": "[variables('apiVersion')]",
+      "name": "[concat(parameters('workspaceName'), '/Microsoft.SecurityInsights/', '19cc12cb-a698-4899-8079-22cd5c4b7368')]",
+      "kind": "Scheduled",
+      "properties": {
+        "displayName": "Volt Typhoon - Security Event Log Cleared",
+        "description": "Security log cleared (Event 1102) - anti-forensics after credential theft / lateral movement.",
+        "severity": "High",
+        "enabled": "[parameters('rulesEnabled')]",
+        "query": "SecurityEvent\n| where EventID == 1102\n| project TimeGenerated, Computer, Activity, Account",
+        "queryFrequency": "PT1H",
+        "queryPeriod": "PT1H",
+        "triggerOperator": "GreaterThan",
+        "triggerThreshold": 0,
+        "suppressionDuration": "PT1H",
+        "suppressionEnabled": false,
+        "tactics": [ "DefenseEvasion" ],
+        "techniques": [ "T1070" ],
+        "entityMappings": [
+          { "entityType": "Host", "fieldMappings": [ { "identifier": "HostName", "columnName": "Computer" } ] },
+          { "entityType": "Account", "fieldMappings": [ { "identifier": "Name", "columnName": "Account" } ] }
+        ]
+      }
+    }
+  ]
+}
