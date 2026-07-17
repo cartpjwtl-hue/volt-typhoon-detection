@@ -28,12 +28,15 @@ The heatmap renders with detection coverage scored 0–3:
 
 64 techniques across 12 tactics:
 - 11 high-fidelity
-- 34 single-phase
+- 35 single-phase
 - 13 partial / hunting
-- 6 blind spots
+- 5 blind spots
 
 Strongest tactics: Execution (2.40), Stealth (2.12), Defense Impairment (2.00), Initial Access (2.00).
-Weakest tactics: Exfiltration (0.50), Resource Development (1.00), Persistence (1.33).
+Weakest tactics: Exfiltration (0.50), Resource Development (1.00), Lateral Movement (1.60).
+
+The v5 event-log pack closed the WMI-subscription persistence blind spot (T1546.003 0 → 2),
+lifting Persistence to 1.67 and dropping the blind-spot count to 5.
 
 The v4 registry pack closes the two former weak spots: Defense Impairment **0.00 → 2.00** and
 Persistence **0.50 → 1.20** (Lateral Movement also rises 1.25 → 1.60).

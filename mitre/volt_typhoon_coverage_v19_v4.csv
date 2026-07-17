@@ -11,7 +11,7 @@ T1059.003,execution,2,Single-phase detection,Windows Command Shell - covered by 
 T1047,execution,3,High-fidelity / capstone,WMI - Impacket wmiexec pattern (cmd spawned by wmiprvse + ADMIN$ output) is high-fidelity.
 T1053.005,execution,2,Single-phase detection,Scheduled Task. [v4 UPLIFT 1->2] TaskCache Tree/Tasks registry registration + Microsoft-folder masquerade detection (v4 Query 8).
 T1547.001,persistence,2,Single-phase detection,Registry Run Keys / Startup Folder. [v4 UPLIFT 0->2] Run/RunOnce + Winlogon Userinit/Shell hijack detection via DeviceRegistryEvents (v4 Query 7).
-T1546.003,persistence,0,Blind spot,WMI Event Subscription. BLIND SPOT - needs persistence query set.
+T1546.003,persistence,2,Single-phase detection,WMI Event Subscription. [v5 UPLIFT 0->2] Permanent FilterToConsumer binding with a code-executing consumer detected via WMI-Activity 5861 / Sysmon 19-21 (v5 Query 8). Closes the last persistence blind spot.
 T1098,persistence,1,Hunting only / partial,Account Manipulation. [v3 UPLIFT 0->1] Partial coverage via edge config-change detection (Query 6) - catches privilege escalation on the edge device itself.
 T1078.003,persistence,1,Hunting only / partial,Local Accounts - account anomaly hunting.
 T1543.003,persistence,2,Single-phase detection,"Windows Service. [v4 NEW] Service ImagePath/ServiceDll written from staging paths or random-named keys, incl. PsExec service pattern (v4 Query 6)."

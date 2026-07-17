@@ -1,0 +1,36 @@
+id: 19cc12cb-a698-4899-8079-22cd5c4b7368
+name: Volt Typhoon - Security Event Log Cleared
+description: |
+  'Detects clearing of the Windows Security event log (Event 1102), a common anti-forensics step
+  used to destroy evidence after credential theft or lateral movement.'
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: SecurityEvents
+    dataTypes:
+      - SecurityEvent
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - DefenseEvasion
+relevantTechniques:
+  - T1070.001
+query: |
+  SecurityEvent
+  | where EventID == 1102
+  | project TimeGenerated, Computer, Activity,
+            ClearedBy = column_ifexists("SubjectUserName", Account),
+            SubjectDomainName = column_ifexists("SubjectDomainName", "")
+entityMappings:
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: Computer
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: ClearedBy
+version: 1.0.0
+kind: Scheduled

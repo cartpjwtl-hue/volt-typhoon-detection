@@ -156,8 +156,8 @@
     {
       "techniqueID": "T1546.003",
       "tactic": "persistence",
-      "score": 0,
-      "comment": "WMI Event Subscription. BLIND SPOT - needs persistence query set.",
+      "score": 2,
+      "comment": "WMI Event Subscription. [v5 UPLIFT 0->2] Permanent FilterToConsumer binding with a code-executing consumer detected via WMI-Activity 5861 / Sysmon 19-21 (v5 Query 8). Closes the last persistence blind spot.",
       "enabled": true
     },
     {

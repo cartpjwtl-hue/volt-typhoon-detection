@@ -1,0 +1,23 @@
+// Title: Security event log cleared (Event 1102)
+// MITRE: T1070.001 (Clear Windows Event Logs) [v19: Defense Impairment]
+// Data sources: SecurityEvent (Windows Security channel)
+// False positive notes: Near-zero. The Security log is essentially never cleared in normal
+//                       operations. A cleared log during business hours from a non-admin
+//                       workstation is incident-grade. Log-management tooling that archives+clears
+//                       is the only real FP - allow-list those service accounts.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The System/Security-channel corroboration for the registry audit-tamper rule (v4/04). When an
+// operator clears tracks, Event 1102 is written to the very log being cleared - a self-witnessing
+// artifact. Promote to P1.
+
+SecurityEvent
+| where TimeGenerated > ago(30d)
+| where EventID == 1102
+| extend ClearedBy = coalesce(column_ifexists("SubjectUserName", ""), Account)
+| extend Phase = "DefenseImpair-LogClear"
+| project TimeGenerated, Computer, EventID, Activity, ClearedBy,
+          SubjectDomainName = column_ifexists("SubjectDomainName", ""),
+          SubjectLogonId = column_ifexists("SubjectLogonId", ""), Phase
+| order by TimeGenerated desc

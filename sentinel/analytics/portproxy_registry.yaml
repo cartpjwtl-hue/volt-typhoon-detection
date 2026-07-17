@@ -1,0 +1,41 @@
+id: e4173392-c6c8-4fba-9853-51125f723c1d
+name: Volt Typhoon - PortProxy Registry Rule Creation
+description: |
+  'Detects creation of a PortProxy v*tov* registry value - the obfuscation-proof artifact written
+  by "netsh interface portproxy add" that turns a host into a C2 relay. Signature Volt Typhoon TTP.'
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: MicrosoftThreatProtection
+    dataTypes:
+      - DeviceRegistryEvents
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CommandAndControl
+  - DefenseEvasion
+relevantTechniques:
+  - T1090.001
+  - T1112
+query: |
+  DeviceRegistryEvents
+  | where RegistryKey has @"\Services\PortProxy\"
+  | where RegistryKey has_any (@"\v4tov4", @"\v4tov6", @"\v6tov4", @"\v6tov6")
+  | where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+  | extend ListenPort = tostring(extract(@"/(\d+)$", 1, RegistryValueName))
+  | project Timestamp, DeviceName, RegistryKey, RegistryValueName, RegistryValueData,
+            ListenPort, InitiatingProcessAccountName, InitiatingProcessFileName,
+            InitiatingProcessCommandLine
+entityMappings:
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: DeviceName
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: InitiatingProcessAccountName
+version: 1.0.0
+kind: Scheduled

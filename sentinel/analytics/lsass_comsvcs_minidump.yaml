@@ -1,0 +1,37 @@
+id: 2b435e91-0bb2-40f6-ba55-d5a06ae337b7
+name: Volt Typhoon - LSASS Dump via comsvcs MiniDump
+description: |
+  'Detects rundll32 invoking the MiniDump export of comsvcs.dll against LSASS. Matches the MiniDump
+  export name and the #24/#+24 ordinal that evades string-based detection.'
+severity: High
+status: Available
+requiredDataConnectors:
+  - connectorId: MicrosoftThreatProtection
+    dataTypes:
+      - DeviceProcessEvents
+queryFrequency: 1h
+queryPeriod: 1h
+triggerOperator: gt
+triggerThreshold: 0
+tactics:
+  - CredentialAccess
+relevantTechniques:
+  - T1003.001
+query: |
+  DeviceProcessEvents
+  | where FileName =~ "rundll32.exe"
+  | where ProcessCommandLine has "comsvcs.dll"
+  | where ProcessCommandLine has_cs "MiniDump" or ProcessCommandLine has_any ("#24","#+24","# 24")
+  | project Timestamp, DeviceName, AccountName, ProcessCommandLine,
+            InitiatingProcessFileName, InitiatingProcessCommandLine
+entityMappings:
+  - entityType: Host
+    fieldMappings:
+      - identifier: HostName
+        columnName: DeviceName
+  - entityType: Account
+    fieldMappings:
+      - identifier: Name
+        columnName: AccountName
+version: 1.0.0
+kind: Scheduled

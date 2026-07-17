@@ -1,0 +1,49 @@
+title: Suspicious Service Installed (SCM Event 7045)
+id: 26c3e1f7-8bae-47c5-8b51-9a11a403eb47
+status: experimental
+description: |
+    Detects a new service installed via the Service Control Manager (Event 7045) whose image path
+    is in a user-writable/staging location or invokes a script interpreter - the PsExec / remote
+    service-execution pattern.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://attack.mitre.org/techniques/T1569/002/
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.t1543.003
+    - attack.t1569.002
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Provider_Name: 'Service Control Manager'
+        EventID: 7045
+    suspicious_path:
+        ImagePath|contains:
+            - '\Temp\'
+            - '\Public\'
+            - '\AppData\'
+            - '\ProgramData\'
+            - '\PerfLogs\'
+            - '\Windows\Debug\'
+    suspicious_lolbin:
+        ImagePath|contains:
+            - 'powershell'
+            - 'cmd /c'
+            - 'cmd.exe /c'
+            - 'rundll32'
+            - 'regsvr32'
+            - 'mshta'
+            - '-enc'
+    suspicious_psexec:
+        ServiceName|contains:
+            - 'PSEXESVC'
+            - 'PAExec'
+    condition: selection and (suspicious_path or suspicious_lolbin or suspicious_psexec)
+falsepositives:
+    - Software installers create services; allow-list known vendor service names / signed images
+level: medium

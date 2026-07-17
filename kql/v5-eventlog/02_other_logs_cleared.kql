@@ -1,0 +1,24 @@
+// Title: System / other event log cleared (Event 104)
+// MITRE: T1070.001 (Clear Windows Event Logs) [v19: Defense Impairment]
+// Data sources: Event (System channel, Microsoft-Windows-Eventlog provider)
+// False positive notes: Low. Event 104 fires when any log other than Security is cleared
+//                       (System, Application, PowerShell/Operational, WinRM, etc.). Patch/imaging
+//                       may clear logs - allow-list build windows and imaging accounts.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// Companion to 01 (Security log / Event 1102). Event 104 in the System channel names WHICH log
+// was cleared and by whom. Clearing PowerShell/Operational or WinRM logs specifically is a strong
+// anti-forensics signal.
+
+Event
+| where TimeGenerated > ago(30d)
+| where Source == "Microsoft-Windows-Eventlog" and EventID == 104
+| parse EventData with * '"Channel">' ClearedLog '<' *
+| parse EventData with * '"SubjectUserName">' ClearedBy '<' *
+| extend HighValueLog = ClearedLog has_any (
+    "PowerShell", "Windows PowerShell", "WinRM", "TaskScheduler", "Sysmon",
+    "TerminalServices", "Security", "Defender")
+| extend Phase = "DefenseImpair-LogClear"
+| project TimeGenerated, Computer, EventID, ClearedLog, ClearedBy, HighValueLog, Phase
+| order by TimeGenerated desc

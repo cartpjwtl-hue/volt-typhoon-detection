@@ -1,0 +1,44 @@
+title: Suspicious LSASS Handle Access (Dump-Capable GrantedAccess)
+id: e349077f-9660-4205-a15f-0c09c4760959
+status: experimental
+description: |
+    Detects a process opening a handle to lsass.exe with dump-capable access rights (PROCESS_VM_READ
+    plus query/dup). Command-line-agnostic - catches direct-syscall and reflection dumpers that leave
+    no telltale command line. Best paired with a call-trace check for unbacked (UNKNOWN) frames.
+references:
+    - https://attack.mitre.org/techniques/T1003/001/
+    - https://ar5iv.labs.arxiv.org/html/2108.10422
+author: detection pack maintainers
+date: 2026-06-27
+tags:
+    - attack.credential-access
+    - attack.t1003.001
+logsource:
+    category: process_access
+    product: windows
+detection:
+    selection:
+        TargetImage|endswith: '\lsass.exe'
+        GrantedAccess:
+            - '0x1010'
+            - '0x1410'
+            - '0x1438'
+            - '0x143a'
+            - '0x1f0fff'
+            - '0x1f1fff'
+            - '0x1f2fff'
+            - '0x1f3fff'
+            - '0x1fffff'
+    filter_benign:
+        SourceImage|endswith:
+            - '\wininit.exe'
+            - '\csrss.exe'
+            - '\services.exe'
+            - '\lsass.exe'
+            - '\MsMpEng.exe'
+            - '\MsSense.exe'
+            - '\wmiprvse.exe'
+    condition: selection and not filter_benign
+falsepositives:
+    - Some EDR/AV agents and backup tools read process memory; allow-list per environment
+level: high

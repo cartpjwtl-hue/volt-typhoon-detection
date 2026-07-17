@@ -19,6 +19,9 @@ Covers the full living-off-the-land kill chain: `netsh portproxy`, `ntds.dit` th
 | `kql/v2-advanced/` | Encoded PowerShell, DCSync, cross-device capstone |
 | `kql/v3-edge/` | Edge device telemetry (Fortinet/Cisco CEF, NetFlow, DNS) |
 | `kql/v4-registry/` | Registry ground-truth detections (DeviceRegistryEvents / Sysmon 12-14) |
+| `kql/v5-eventlog/` | Security/System channel detections (log clear, service, task, WMI subscription) |
+| `sigma/` | Vendor-neutral Sigma rule conversions |
+| `sentinel/` | Sentinel analytics rule YAML + ARM deployment template |
 | `mitre/` | ATT&CK Navigator layer JSON + coverage CSV |
 | `docs/` | Methodology, kill chain reference, deployment guide |
 | `diagrams/` | Kill chain and coverage visualizations |
@@ -66,12 +69,12 @@ Command & control             1.83   █████████░░░  Solid
 Discovery                     1.70   ████████░░░░  Solid
 Collection                    1.67   ████████░░░░  Solid
 Lateral movement              1.60   ████████░░░░  Solid (v4)
-Persistence                   1.33   ██████░░░░░░  Partial (v4)
+Persistence                   1.67   ████████░░░░  Solid (v5)
 Resource development          1.00   █████░░░░░░░  Partial
 Exfiltration                  0.50   ██░░░░░░░░░░  Exposed
 ```
 
-**64 techniques mapped • 11 high-fidelity • 34 single-phase • 13 partial • 6 blind spots**
+**64 techniques mapped • 11 high-fidelity • 35 single-phase • 13 partial • 5 blind spots**
 
 ## Detection highlights
 
@@ -107,6 +110,17 @@ Exfiltration                  0.50   ██░░░░░░░░░░  Expos
 - [x] **v4 — Registry ground-truth pack** (`kql/v4-registry/`) — PortProxy (C2), Defender/EDR &
   audit tamper (defense-impairment), service/autorun/scheduled-task (persistence), WinRM/RDP
   (lateral-prep), weighted registry-only kill-chain capstone
+- [x] **v5 — Event-log pack** (`kql/v5-eventlog/`) — Security/System channel corroboration: 1102/104
+  log clear, 4719 audit-policy disable, 7045/4697 service install, 4698 scheduled task, 7040
+  security-service disable, 4104 script block, and the event-log capstone
+- [x] **WMI Event Subscription persistence** (`kql/v5-eventlog/08`, T1546.003) — closed the last
+  persistence blind spot via WMI-Activity 5861 / Sysmon 19-21
+- [x] **`05_ntds_alt_methods.kql` back-port** — comsvcs `#24` ordinal fix applied to the original
+  v1 query
+- [x] **Sigma rule conversions** (`sigma/`) — 10 vendor-neutral rules across process/registry/
+  process-access/event-log/WMI sources
+- [x] **Sentinel analytics rules** (`sentinel/`) — scheduled-rule YAML with entity mappings +
+  ARM deployment template
 - [x] **MITRE ATT&CK v19.1 coverage layer** (`mitre/`) — Navigator layer JSON (v1/v2/v3/v4) +
   coverage CSV, 64 techniques scored across 12 tactics
 - [x] **Documentation** (`docs/`) — methodology, kill-chain reference, deployment guide; kill-chain
@@ -114,13 +128,12 @@ Exfiltration                  0.50   ██░░░░░░░░░░  Expos
 
 ### Planned artifacts
 
-- [ ] **v5 — Event-log pack** — Event 1102/104 log-clear, 4698 scheduled task, 7045 service install,
-  4688 process create — to corroborate the registry layer from the Security/System channels
-- [ ] **WMI Event Subscription persistence** (T1546.003) — last remaining persistence blind spot
-- [ ] **`05_ntds_alt_methods.kql` back-port** — apply the comsvcs `#24` ordinal fix to the original
-  v1 query (currently only in `05b`)
-- [ ] **Sigma rule conversions** of the KQL detections
-- [ ] **Sentinel analytics rule YAML** with entity mappings, packaged as an ARM template
+- [ ] **Credential Guard / ELAM hardening playbook** — pair the detections with the preventive
+  controls that actually stop LSASS theft (defense in depth, not more KQL)
+- [ ] **Direct-syscall / ETW-Ti tamper detection** — the residual blind spot below `05c` (needs
+  sensor-integrity telemetry, not command lines)
+- [ ] **Automated coverage-map regeneration** — CI job that recomputes the MITRE layer + CSV from
+  the KQL headers so scores never drift from the detections
 
 ## Honest about limitations
 

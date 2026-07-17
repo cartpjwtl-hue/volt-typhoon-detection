@@ -1,0 +1,57 @@
+// Title: WMI permanent event subscription persistence
+// MITRE: T1546.003 (Windows Management Instrumentation Event Subscription)
+// Data sources: Event / Microsoft-Windows-WMI-Activity Operational (Event ID 5861);
+//               Sysmon Event ID 19 (WmiEventFilter), 20 (WmiEventConsumer), 21 (Binding);
+//               Microsoft Defender DeviceEvents (ActionType has "Wmi") - see notes.
+// False positive notes: Some legitimate management/monitoring software (SCCM, Dell/HP agents,
+//                       backup tools) register permanent WMI subscriptions. Allow-list those
+//                       consumer names / DLLs. A CommandLine/ActiveScript consumer bound to a
+//                       __InstanceModificationEvent filter is the classic malicious shape.
+// Author: detection pack maintainers
+// Date: 2026-06-27
+//
+// The remaining persistence blind spot. A permanent WMI subscription = Filter (a WQL trigger) +
+// Consumer (an action: CommandLineEventConsumer / ActiveScriptEventConsumer) + FilterToConsumer
+// Binding. It survives reboot, runs as SYSTEM, and leaves no file if the payload is inline. WMI-
+// Activity Event 5861 logs the assembled ESS subscription; Sysmon 19/20/21 log each component.
+
+// ---- Path 1: WMI-Activity Operational log (Event 5861 - permanent subscription registered) ----
+let wmi_activity =
+    Event
+    | where TimeGenerated > ago(30d)
+    | where Source == "Microsoft-Windows-WMI-Activity" and EventID == 5861
+    | extend Payload = tolower(coalesce(column_ifexists("RenderingInfo", ""), EventData))
+    | where Payload has_any ("commandlineeventconsumer", "activescripteventconsumer")
+    | extend SuspiciousConsumer = Payload has_any (
+        "powershell", "cmd.exe", "cmd /c", "mshta", "rundll32", "regsvr32", "wscript", "cscript",
+        "scrcons", "-enc", "frombase64string", "downloadstring", @"\temp\", @"\programdata\", "eval(")
+    | extend Phase = "Persistence-WMISubscription", DetVia = "WMI-Activity-5861"
+    | project TimeGenerated, Computer, EventID, DetVia, SuspiciousConsumer,
+              Evidence = substring(Payload, 0, 800), Phase;
+//
+// ---- Path 2: Sysmon consumer-to-filter binding (Event 21) with a code-executing consumer -------
+let sysmon_binding =
+    Event
+    | where TimeGenerated > ago(30d)
+    | where Source == "Microsoft-Windows-Sysmon" and EventID in (20, 21)
+    | extend Data = tolower(EventData)
+    | where Data has_any ("commandlineeventconsumer", "activescripteventconsumer")
+    | extend SuspiciousConsumer = Data has_any (
+        "powershell", "cmd.exe", "mshta", "rundll32", "regsvr32", "wscript", "cscript",
+        "scrcons", "-enc", "frombase64string", "downloadstring", @"\temp\", @"\programdata\")
+    | extend Phase = "Persistence-WMISubscription", DetVia = strcat("Sysmon-", tostring(EventID))
+    | project TimeGenerated, Computer, EventID, DetVia, SuspiciousConsumer,
+              Evidence = substring(Data, 0, 800), Phase;
+//
+union wmi_activity, sysmon_binding
+| extend Severity = case(SuspiciousConsumer, "High", "Medium")
+| order by TimeGenerated desc
+
+// ---- Microsoft Defender for Endpoint equivalent (uncomment if using DeviceEvents) --------------
+// DeviceEvents
+// | where Timestamp > ago(30d)
+// | where ActionType in ("WmiBindEventFilterToConsumer","AsyncEventConsumerCreated","EventFilterCreated")
+// | extend Phase = "Persistence-WMISubscription"
+// | project Timestamp, DeviceName, ActionType, InitiatingProcessFileName,
+//           InitiatingProcessCommandLine, AdditionalFields, Phase
+// | order by Timestamp desc

@@ -16,7 +16,8 @@ DeviceProcessEvents
         and ProcessCommandLine has_any ("hklm\\system","hklm\\security","hklm\\sam"))
     or (FileName =~ "esentutl.exe" and ProcessCommandLine has "ntds.dit")
     or (FileName =~ "rundll32.exe" and ProcessCommandLine has "comsvcs.dll"
-        and ProcessCommandLine has_cs "MiniDump")
+        // match the MiniDump export AND the #24 / #+24 ordinal that evades the string check
+        and (ProcessCommandLine has_cs "MiniDump" or ProcessCommandLine has_any ("#24", "#+24", "# 24")))
 | extend Phase = "CredAccess-Alt"
 | project Timestamp, DeviceName, AccountName, FileName, ProcessCommandLine,
           InitiatingProcessCommandLine, Phase
