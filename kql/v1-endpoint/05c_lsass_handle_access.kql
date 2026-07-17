@@ -53,13 +53,37 @@ Event
 | order by TimeGenerated desc
 
 // ---- Microsoft Defender for Endpoint equivalent (uncomment if using DeviceEvents) ------------
+// MDE has no CallTrace field, so the "unbacked call stack -> Critical" tell from the Sysmon path
+// above cannot be reproduced. Severity here is derived instead from three signals MDE DOES expose:
+//   (1) the ASR verdict     - AsrLsassCredentialTheft{Blocked,Audited,WarnBypassed} (needs the
+//       "Block credential stealing from lsass" ASR rule deployed, even in audit mode);
+//   (2) the requested access mask - parsed out of the AdditionalFields JSON (field name varies by
+//       sensor build - inspect AdditionalFields in your tenant and adjust);
+//   (3) the initiating-process context - LOLBin / staging-path accessor.
 // DeviceEvents
 // | where Timestamp > ago(30d)
-// | where ActionType == "OpenProcessApiCall"
-// | where FileName =~ "lsass.exe"                       // FileName = target of the handle
+// | where (ActionType == "OpenProcessApiCall" and FileName =~ "lsass.exe")   // handle opened against LSASS
+//      or ActionType in ("AsrLsassCredentialTheftBlocked","AsrLsassCredentialTheftAudited","AsrLsassCredentialTheftWarnBypassed")
 // | where InitiatingProcessFileName !in~ (
-//     "wininit.exe","csrss.exe","services.exe","lsass.exe","MsMpEng.exe","MsSense.exe")
-// | extend Phase = "CredAccess-LSASS-HandleAccess"
-// | project Timestamp, DeviceName, InitiatingProcessFileName, InitiatingProcessCommandLine,
-//           InitiatingProcessAccountName, FileName, AdditionalFields, Phase
+//     "wininit.exe","csrss.exe","services.exe","lsass.exe","MsMpEng.exe","MsSense.exe","smss.exe")
+// | extend Fields = parse_json(AdditionalFields)
+// | extend DesiredAccess = tolower(tostring(coalesce(Fields.DesiredAccess, Fields.GrantedAccess, Fields.RequestedAccess, "")))
+// | extend DumpCapable = DesiredAccess in (
+//     "0x1010","0x1410","0x1438","0x143a","0x1f0fff","0x1f1fff","0x1f2fff","0x1f3fff","0x1fffff")
+//     or DesiredAccess has "0x1f"
+// | extend SuspiciousInitiator =
+//        InitiatingProcessFileName in~ (
+//          "rundll32.exe","powershell.exe","pwsh.exe","cmd.exe","procdump.exe","procdump64.exe",
+//          "werfault.exe","taskmgr.exe","mshta.exe","regsvr32.exe","createdump.exe")
+//     or InitiatingProcessFolderPath has_any (@"\temp\", @"\appdata\", @"\programdata\", @"\public\", @"\perflogs\")
+// | extend Severity = case(
+//     ActionType == "AsrLsassCredentialTheftBlocked",                                          "Critical",  // ASR blocked an actual theft attempt
+//     ActionType in ("AsrLsassCredentialTheftAudited","AsrLsassCredentialTheftWarnBypassed"),  "High",      // ASR saw it (audit / warn-bypass)
+//     DumpCapable and SuspiciousInitiator,                                                     "Critical",  // dump-rights handle from a LOLBin/staging accessor
+//     DumpCapable or SuspiciousInitiator,                                                      "High",
+//     "Medium")
+// | extend Technique = "T1003.001", Phase = "CredAccess-LSASS-HandleAccess"
+// | project Timestamp, DeviceName, Severity, ActionType, DesiredAccess, DumpCapable, SuspiciousInitiator,
+//           InitiatingProcessFileName, InitiatingProcessCommandLine, InitiatingProcessAccountName,
+//           InitiatingProcessParentFileName, FileName, Technique, Phase
 // | order by Timestamp desc
