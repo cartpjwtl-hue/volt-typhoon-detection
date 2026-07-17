@@ -90,14 +90,37 @@ Exfiltration                  0.50   ██░░░░░░░░░░  Expos
 
 ## Roadmap
 
-- [x] v1 — Endpoint detections for documented LOTL techniques
-- [x] v2 — DCSync, encoded PowerShell, cross-device capstone
-- [x] v3 — Edge device telemetry (Fortinet, Cisco, NetFlow, DNS)
-- [x] v4 — Registry ground-truth pack (PortProxy, Defender/EDR tamper, audit, persistence, lateral-prep, capstone)
-- [ ] v5 — Event-log pack (Event 1102/104 log-clear, 4698 task, 7045 service) to corroborate the registry layer
-- [ ] WMI Event Subscription persistence (T1546.003 — remaining persistence blind spot)
-- [ ] Sigma rule conversions
-- [ ] Sentinel analytics rule YAML packaged ARM template
+### Delivered artifacts
+
+- [x] **v1 — Endpoint detections** (`kql/v1-endpoint/`) — Phase 1-5 LOTL kill chain: discovery, netsh
+  portproxy (process + registry), ntdsutil IFM, alt credential-dump, ntds.dit landing, .gif
+  staging masquerade, Impacket wmiexec, device capstone
+- [x] **Phase 3 credential-access expansion** (`kql/v1-endpoint/05b–05f`) — all-inclusive alternate
+  dump methods (shadow-copy / NTDS / hive / LSASS, method-classified), behavioral LSASS
+  handle-access (Sysmon EID10 / MDE `OpenProcessApiCall`, arXiv:2108.10422), and the relocated
+  registry cred-access rules (NTDS, VSS, LSASS WDigest/RunAsPPL/SSP)
+- [x] **v2 — Advanced detections** (`kql/v2-advanced/`) — DCSync (Event 4662 + MDI), encoded
+  PowerShell scoring, account-based cross-device capstone
+- [x] **v3 — Edge device telemetry** (`kql/v3-edge/`) — Fortinet/Cisco CEF exploit indicators, VPN
+  auth anomaly, KV-botnet 8443 NetFlow beaconing, DNS DDNS hunting, config drift, EOL inventory,
+  edge-to-endpoint capstone
+- [x] **v4 — Registry ground-truth pack** (`kql/v4-registry/`) — PortProxy (C2), Defender/EDR &
+  audit tamper (defense-impairment), service/autorun/scheduled-task (persistence), WinRM/RDP
+  (lateral-prep), weighted registry-only kill-chain capstone
+- [x] **MITRE ATT&CK v19.1 coverage layer** (`mitre/`) — Navigator layer JSON (v1/v2/v3/v4) +
+  coverage CSV, 64 techniques scored across 12 tactics
+- [x] **Documentation** (`docs/`) — methodology, kill-chain reference, deployment guide; kill-chain
+  and ntds-two-paths diagrams
+
+### Planned artifacts
+
+- [ ] **v5 — Event-log pack** — Event 1102/104 log-clear, 4698 scheduled task, 7045 service install,
+  4688 process create — to corroborate the registry layer from the Security/System channels
+- [ ] **WMI Event Subscription persistence** (T1546.003) — last remaining persistence blind spot
+- [ ] **`05_ntds_alt_methods.kql` back-port** — apply the comsvcs `#24` ordinal fix to the original
+  v1 query (currently only in `05b`)
+- [ ] **Sigma rule conversions** of the KQL detections
+- [ ] **Sentinel analytics rule YAML** with entity mappings, packaged as an ARM template
 
 ## Honest about limitations
 
