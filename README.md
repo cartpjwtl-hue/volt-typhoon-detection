@@ -23,7 +23,7 @@ Covers the full living-off-the-land kill chain: `netsh portproxy`, `ntds.dit` th
 | `sigma/` | Vendor-neutral Sigma rule conversions |
 | `sentinel/` | Sentinel analytics rule YAML + ARM deployment template |
 | `mitre/` | ATT&CK Navigator layer JSON + coverage CSV |
-| `docs/` | Methodology, kill chain reference, deployment guide |
+| `docs/` | Methodology, kill chain reference, deployment guide, research bibliography |
 | `diagrams/` | Kill chain and coverage visualizations |
 
 ## Quick start
@@ -158,6 +158,7 @@ MIT. See [LICENSE](LICENSE).
 - **MITRE ATT&CK** — Framework and Navigator
 - **Palo Alto Unit 42** — Insidious Taurus (Volt Typhoon) threat brief, PortProxy registry path
 - Detection patterns referenced from public research by SlimKQL, cyb3rmik3, reprise99, Elastic Security, and SnareSolutions
+- Academic grounding and the arXiv reading list are tracked in [`docs/RESEARCH.md`](docs/RESEARCH.md) (auto-monitored weekly)
 
 ## Contributing
 
