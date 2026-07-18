@@ -1,0 +1,58 @@
+name: Research monitor
+
+# Keeps docs/RESEARCH.md current: weekly, queries the arXiv API for the pack's topic set and
+# refreshes the auto-managed candidate block (adds new relevant papers, flags cited IDs that no
+# longer resolve). Changes are proposed as a PR for human review - never committed to master
+# automatically.
+#
+# Requirements:
+#   * Settings > Actions > General > Workflow permissions = "Read and write permissions"
+#   * "Allow GitHub Actions to create and approve pull requests" enabled (for the PR step)
+
+on:
+  schedule:
+    - cron: '17 6 * * 1'   # Mondays 06:17 UTC
+  workflow_dispatch: {}     # allow manual runs
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-research:
+    name: Refresh arXiv reading list
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run research monitor
+        run: python3 scripts/research_monitor.py
+
+      - name: Open PR if the reading list changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- docs/RESEARCH.md; then
+            echo "No changes to docs/RESEARCH.md - nothing to propose."
+            exit 0
+          fi
+          BRANCH="research-monitor/update-$(date -u +%Y%m%d)"
+          git config user.name  "research-monitor[bot]"
+          git config user.email "research-monitor@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add docs/RESEARCH.md
+          git commit -m "research-monitor: refresh arXiv candidate list ($(date -u +%Y-%m-%d))"
+          git push --force-with-lease -u origin "$BRANCH"
+          if gh pr view "$BRANCH" >/dev/null 2>&1; then
+            echo "PR already open for $BRANCH; branch updated."
+          else
+            gh pr create \
+              --base master \
+              --head "$BRANCH" \
+              --title "Research monitor: arXiv reading-list update" \
+              --body "Automated refresh of the auto-managed block in \`docs/RESEARCH.md\`. Review the new candidate papers and promote any relevant ones into the curated sections; investigate any removal flags."
+          fi

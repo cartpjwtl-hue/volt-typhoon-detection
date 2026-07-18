@@ -2,6 +2,16 @@
 
 All notable changes to this detection pack will be documented in this file.
 
+## [Unreleased] - 2026-07-18
+
+### Added
+- `docs/RESEARCH.md` - academic bibliography grounding the pack, mapping each arXiv paper to the
+  repo assets/functions it informed. Honest split: one paper (arXiv:2108.10422) directly shaped
+  code (`05c`), the rest is supporting literature.
+- **Continuous research monitoring**: `scripts/research_monitor.py` (stdlib-only arXiv API query,
+  diffs against cited IDs, refreshes an auto-managed candidate block, flags withdrawn IDs) driven by
+  `.github/workflows/research-monitor.yml` (weekly schedule, proposes changes as a PR for review).
+
 ## [v5.0] - 2026-06-27
 
 ### Added
