@@ -87,7 +87,19 @@ between the markers is machine-managed — do not edit it by hand.
 <!-- RESEARCH-MONITOR:BEGIN -->
 ### Candidate papers (auto-discovered, pending review)
 
-_Not yet populated. The first scheduled run of `research-monitor` will fill this in._
+_No new candidates since the last run._
 
-_Last run: never._
+### ⚠ Cited IDs that no longer resolve on arXiv (review — withdrawn/replaced?)
+
+- `arXiv:2306.00934`
+- `arXiv:2401.15878`
+- `arXiv:2407.16928`
+- `arXiv:2407.18832`
+- `arXiv:2508.21323`
+- `arXiv:2509.05698`
+- `arXiv:2603.09358`
+- `arXiv:2606.07158`
+- `arXiv:2606.18190`
+
+_Last run: 2026-07-27 · 0 candidate(s), 9 removal flag(s)._
 <!-- RESEARCH-MONITOR:END -->
