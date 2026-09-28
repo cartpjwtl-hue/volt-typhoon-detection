@@ -87,7 +87,7 @@ between the markers is machine-managed — do not edit it by hand.
 <!-- RESEARCH-MONITOR:BEGIN -->
 ### Candidate papers (auto-discovered, pending review)
 
-_Not yet populated. The first scheduled run of `research-monitor` will fill this in._
+_No new candidates since the last run._
 
-_Last run: never._
+_Last run: 2026-09-28 · 0 candidate(s), 0 removal flag(s)._
 <!-- RESEARCH-MONITOR:END -->
