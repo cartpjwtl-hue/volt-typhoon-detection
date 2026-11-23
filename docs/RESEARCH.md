@@ -87,7 +87,61 @@ between the markers is machine-managed — do not edit it by hand.
 <!-- RESEARCH-MONITOR:BEGIN -->
 ### Candidate papers (auto-discovered, pending review)
 
-_Not yet populated. The first scheduled run of `research-monitor` will fill this in._
+| arXiv | Published | Title |
+|---|---|---|
+| [2611.25086](https://arxiv.org/abs/2611.25086) | 2026-11-18 | Living off the Local Model: Abusing Browser-Embedded Language Models for Post-Exploitation |
+| [2611.22589](https://arxiv.org/abs/2611.22589) | 2026-11-17 | Adaptive LLM-Driven Honeypots vs. LLM-Driven Attackers: Does Narrative Coherence Improve Deception? |
+| [2611.21497](https://arxiv.org/abs/2611.21497) | 2026-11-16 | The CYBER-BRIDGE project: An AI-Powered Platform for Cross-Border Cybersecurity, Compliance and Forensics in the EU |
+| [2611.20699](https://arxiv.org/abs/2611.20699) | 2026-11-16 | A First Look at System One Decision Models for Malware Detection |
+| [2611.13960](https://arxiv.org/abs/2611.13960) | 2026-11-10 | From Attack Surface to Defense Architecture: Compositional Security for Agentic Coding Harnesses |
+| [2611.13684](https://arxiv.org/abs/2611.13684) | 2026-11-10 | BypassGym: A Benchmark for Evaluating AI Agents' Endpoint Defense Evasion Capabilities |
+| [2611.08745](https://arxiv.org/abs/2611.08745) | 2026-11-05 | I Don't Care How You Hide It, I Care What You Do: Runtime Detection of Malicious ML Models |
+| [2611.03774](https://arxiv.org/abs/2611.03774) | 2026-11-02 | What Malware Actually Does: An Empirical Analysis of Post-Infection Behavior Across Malware Families |
+| [2610.32226](https://arxiv.org/abs/2610.32226) | 2026-10-23 | Democratic Accountability for Autonomous Systems: A Legislative Notification Framework and Comparative Institutional Design |
+| [2609.32424](https://arxiv.org/abs/2609.32424) | 2026-09-26 | CyberClear: A Benchmark for LLM Agent Systems on APT Attack Chain Provenance |
+| [2609.21303](https://arxiv.org/abs/2609.21303) | 2026-09-18 | Identifying Security Platform Product Abuse with Machine Learning |
+| [2609.16462](https://arxiv.org/abs/2609.16462) | 2026-09-15 | Not All Relations Are Equal: Relation-Balanced and Calibrated Graph Learning for Provenance-Based Intrusion Detection |
+| [2609.14593](https://arxiv.org/abs/2609.14593) | 2026-09-13 | SENTINEL: A Multi-Pathway Architecture for Detecting Living-Off-the-Land APT Attacks on Windows Command Lines |
+| [2608.31062](https://arxiv.org/abs/2608.31062) | 2026-08-31 | The Exclusion Ratchet: False-Positive Suppression Accumulates and Persists in Detection Rule Repositories |
+| [2609.00259](https://arxiv.org/abs/2609.00259) | 2026-08-31 | DUPIN: Attack Learning Is Still Needed! Demonstrating Few-Shot after Unsupervised Pretraining Is A Nimble Forensics Learner |
+| [2608.19750](https://arxiv.org/abs/2608.19750) | 2026-08-20 | TGL-APT: Temporal Graph Learning with Graph Distillation for Efficient APT Investigation |
+| [2608.19011](https://arxiv.org/abs/2608.19011) | 2026-08-19 | From Threat Intelligence to Detection: Knowledge-driven Enrichment and Template-based Rule Grounding for Automated Sigma Rule Generation |
+| [2608.16187](https://arxiv.org/abs/2608.16187) | 2026-08-17 | Securing AI-Generated Code: A Just-in-Time Vulnerability Detection and Remediation Pipeline |
+| [2608.12444](https://arxiv.org/abs/2608.12444) | 2026-08-12 | Non-Degenerate Risk Certification for Automated Security Decisions: A Decision-Contract Theory with ATT\&CK-Aligned Triage as a Worked Instance |
+| [2608.01639](https://arxiv.org/abs/2608.01639) | 2026-08-03 | Mutate to Bypass: Autonomous Endpoint Evasion via Knowledge-Driven Multi-Agent Orchestration |
+| [2608.00901](https://arxiv.org/abs/2608.00901) | 2026-08-02 | A Decade of Healthcare Cyber Threats: Empirical Analysis, Evidence-Based Prioritisation, and AI Threat Model |
+| [2608.00895](https://arxiv.org/abs/2608.00895) | 2026-08-01 | Multi-LLM Consensus Framework for Evaluating Banking-Sector NIDS Dataset Coverage of MITRE ATT&CK Techniques |
+| [2607.27661](https://arxiv.org/abs/2607.27661) | 2026-07-30 | Strategy Phasing of Cyber Attacks on Digital Substations |
+| [2607.26791](https://arxiv.org/abs/2607.26791) | 2026-07-29 | SecRespond: Benchmarking AI Agents for Real-World Post-Compromise Incident Response |
+| [2607.24348](https://arxiv.org/abs/2607.24348) | 2026-07-27 | DeepFaith: Evidence-Grounded LLMs for Faithful Incident Reporting in Multi-Stage APT Defense |
+| [2607.13087](https://arxiv.org/abs/2607.13087) | 2026-07-13 | GDM AI Control Roadmap |
+| [2607.05989](https://arxiv.org/abs/2607.05989) | 2026-07-07 | ProvICS: A Provenance-based Intrusion Detection for Industrial Control Systems |
+| [2607.00440](https://arxiv.org/abs/2607.00440) | 2026-07-01 | Minos: A Multi-Agent Collaborative Framework for Provenance-Based Backward Tracking |
+| [2606.30586](https://arxiv.org/abs/2606.30586) | 2026-06-29 | A Hybrid Framework For Crypto-Ransomware Detection In Enterprise Shared Storage |
+| [2605.29269](https://arxiv.org/abs/2605.29269) | 2026-05-28 | HunterAgent: Neuro-Symbolic Attack Trace Reconstruction under Anti-Forensics |
+| [2605.18624](https://arxiv.org/abs/2605.18624) | 2026-05-18 | Learning to Look Benign: Targeted Evasion of Malware Detectors via API Import Injection |
+| [2605.07812](https://arxiv.org/abs/2605.07812) | 2026-05-08 | GRASP -- Graph-Based Anomaly Detection Through Self-Supervised Classification |
+| [2604.06148](https://arxiv.org/abs/2604.06148) | 2026-04-07 | Who Governs the Machine? A Machine Identity Governance Taxonomy (MIGT) for AI Systems Operating Across Enterprise and Geopolitical Boundaries |
+| [2604.04442](https://arxiv.org/abs/2604.04442) | 2026-04-06 | Explainable Autonomous Cyber Defense using Adversarial Multi-Agent Reinforcement Learning |
+| [2603.22982](https://arxiv.org/abs/2603.22982) | 2026-03-24 | How Far Should We Need to Go : Evaluate Provenance-based Intrusion Detection Systems in Industrial Scenarios |
+| [2603.21296](https://arxiv.org/abs/2603.21296) | 2026-03-22 | DeepXplain: XAI-Guided Autonomous Defense Against Multi-Stage APT Campaigns |
+| [2603.19658](https://arxiv.org/abs/2603.19658) | 2026-03-20 | ProHunter: A Comprehensive APT Hunting System Based on Whole-System Provenance |
+| [2603.16969](https://arxiv.org/abs/2603.16969) | 2026-03-17 | DeepStage: Learning Autonomous Defense Policies Against Multi-Stage APT Campaigns |
+| [2603.07560](https://arxiv.org/abs/2603.07560) | 2026-03-08 | Learning the APT Kill Chain: Temporal Reasoning over Provenance Data for Attack Stage Estimation |
+| [2602.19831](https://arxiv.org/abs/2602.19831) | 2026-02-23 | An Explainable Memory Forensics Approach for Malware Analysis |
 
-_Last run: never._
+### ⚠ Cited IDs that no longer resolve on arXiv (review — withdrawn/replaced?)
+
+- `arXiv:2108.10422`
+- `arXiv:2306.00934`
+- `arXiv:2401.15878`
+- `arXiv:2407.16928`
+- `arXiv:2407.18832`
+- `arXiv:2508.21323`
+- `arXiv:2509.05698`
+- `arXiv:2603.09358`
+- `arXiv:2606.07158`
+- `arXiv:2606.18190`
+
+_Last run: 2026-11-23 · 55 candidate(s), 10 removal flag(s)._
 <!-- RESEARCH-MONITOR:END -->
