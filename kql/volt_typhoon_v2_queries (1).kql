@@ -1,0 +1,649 @@
+// Volt Typhoon behavior-driven detection pack - v2
+// Companion to volt_typhoon_queries_v2.docx
+// Target: Microsoft Defender XDR advanced hunting / custom detections; Sentinel-compatible
+// Each block below is a standalone query - run and save them separately.
+
+
+// ==============================================================================================
+
+// BEH-IA-001 - Risk-Flagged Authentication Sequence on PublicFacing Asset
+// Platform:  Microsoft Defender XDR (Custom Detection)
+// Frequency: Every 15 minutes | Lookback: 4 hours
+// Functions: Get_CIP_Accounts(), Get_SuppressedSources()
+// Tables:    CloudAppEvents, IdentityLogonEvents
+// VALIDATE:  RiskLevelDuringSignIn is native to AADSignInEventsBeta / SigninLogs, not to
+//            CloudAppEvents. If the column is absent in this tenant, source preconditions
+//            1-2 from AADSignInEventsBeta and join back on AccountUpn.
+// VALIDATE:  confirm ActionType values and RiskLevelDuringSignIn casing per tenant.
+
+// --- Precondition 5b: recent lockout events (24h lookback) ---
+let RecentLockouts =
+    IdentityLogonEvents
+    | where Timestamp > ago(24h)
+    | where ActionType == "Account locked out"
+    | project LockoutTime = Timestamp, Account = tolower(AccountUpn);
+// --- Preconditions 1-4: risky success on an untrusted source ---
+let RiskyAuth =
+    CloudAppEvents
+    | where Timestamp > ago(4h)
+    // Precondition 1: successful authentication
+    | where ActionType in~ ("LogOn","Add-Mailbox-Auth-Success","UserLoggedIn")
+    | where RawEventData has "Success"
+    // Precondition 2: risk-flagged by Identity Protection
+    | where RiskLevelDuringSignIn in~ ("Low","Medium","High")
+    // Precondition 3: untrusted source context
+    //   IPCategory "Other"  = external / non-corporate
+    //   IPTags Guest_WiFi   = internal untrusted segment
+    | where IPCategory =~ "Other" or IPTags has "Guest_WiFi"
+    // Precondition 4: not a known-good scanner
+    | where IPAddress !in (Get_SuppressedSources())
+    | extend Account       = tolower(AccountUpn),
+             AppName       = Application,
+             SourceContext = case(
+                 IPTags has "Guest_WiFi",  "Guest_WiFi",
+                 IPCategory =~ "Other",    "External",
+                                           "Unknown")
+    | project Timestamp, Account, IPAddress, AppName,
+              RiskLevel = RiskLevelDuringSignIn, SourceContext;
+// --- Precondition 5: CIP-adjacent identity OR a prior lockout on the same account ---
+let CIPAccountSuccess =
+    RiskyAuth
+    | join kind=inner (Get_CIP_Accounts() | project Account = tolower(AccountUpn))
+           on Account
+    | extend Trigger = "5a-CIPAccount";
+let LockoutPrecedesSuccess =
+    RiskyAuth
+    | join kind=inner RecentLockouts on Account
+    | where Timestamp > LockoutTime
+    | extend Trigger = "5b-PostLockoutSuccess";
+// --- Compound alert: fires only when the full precondition set is satisfied ---
+union CIPAccountSuccess, LockoutPrecedesSuccess
+| extend AlertSeverity = "Medium"
+| extend AlertDetail = strcat(
+        "Risk-flagged auth: ", Account,
+        " | App: ", AppName,
+        " | Risk: ", RiskLevel,
+        " | Source: ", SourceContext, " (IP: ", IPAddress, ")",
+        " | Trigger: ", Trigger)
+| extend PlaybookHint = strcat(
+        "Watch BEH-DE-002 / BEH-LM-003 on ", Account, " in the next 4-12h")
+| project Timestamp, Account, IPAddress, AppName, RiskLevel, SourceContext, Trigger,
+          AlertSeverity, AlertDetail, PlaybookHint
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-DE-002 - Pre-Pivot Reconnaissance and Evasion on OT-Adjacent Host
+// Platform:  Microsoft Defender XDR (Custom Detection)
+// Frequency: Every 1h | Lookback: 2h
+// Functions: Get_CIP_Jump_Hosts(), Get_CIP_Mgmt_Hosts(), IsInMaintenanceWindow()
+// VALIDATE:  the correlation window below was truncated in the draft ("<= 12-").
+//            120 minutes is used here - align it with section 3 before deployment.
+
+let CIP_Hosts =
+    union (Get_CIP_Jump_Hosts()), (Get_CIP_Mgmt_Hosts())
+    | project DeviceId, DeviceName, AssetClass,
+              SafetyCritical = DeviceTags has "SafetyCritical";
+let LOLBins = dynamic(["netstat.exe","ipconfig.exe","net.exe","net1.exe","wmic.exe",
+                       "nltest.exe","ping.exe","arp.exe","whoami.exe","quser.exe",
+                       "systeminfo.exe","tasklist.exe","rundll32.exe","regsvr32.exe"]);
+let DefSvcs = dynamic(["mssense","windefend","sense","msmpeng","mpssvc","wscsvc"]);
+// (A) Discovery: three or more distinct LOLBins on one CIP-adjacent host in 10 minutes
+let Discovery =
+    DeviceProcessEvents
+    | where Timestamp > ago(2h)
+    | where FileName in~ (LOLBins)
+    | where not(InitiatingProcessFileName in~ ("explorer.exe","userinit.exe"))
+    | join kind=inner CIP_Hosts on DeviceId
+    | summarize BinCount      = dcount(FileName),
+                BinList       = make_set(FileName, 10),
+                DiscoveryTime = min(Timestamp)
+             by DeviceId, DeviceName, AssetClass, SafetyCritical,
+                DiscoveryAccount = InitiatingProcessAccountName,
+                TimeBin = bin(Timestamp, 10m)
+    | where BinCount >= 3;
+// (B) Evasion: log clearing or a move against a defensive service
+let Evasion =
+    union
+    (DeviceEvents
+     | where Timestamp > ago(2h)
+     | where ActionType in~ ("EventLogCleared","SecurityLogCleared")
+     | extend EvasionType = "LogCleared"),
+    (DeviceProcessEvents
+     | where Timestamp > ago(2h)
+     | where FileName in~ ("sc.exe","net.exe","net1.exe","reg.exe")
+     | where tolower(ProcessCommandLine) has_any (DefSvcs)
+     | where ProcessCommandLine has_any ("stop","delete","disable")
+     | extend EvasionType = "DefenseImpair")
+    | join kind=inner CIP_Hosts on DeviceId
+    | project DeviceId, EvasionTime = Timestamp, EvasionType,
+              EvasionAccount = InitiatingProcessAccountName;
+// --- Compound alert: discovery AND evasion on the same host, outside maintenance ---
+Discovery
+| join kind=inner Evasion on DeviceId
+| where abs(datetime_diff("minute", DiscoveryTime, EvasionTime)) <= 120
+| where IsInMaintenanceWindow(DeviceName, DiscoveryTime) == false
+| extend AlertDetail = strcat(
+        "Pre-pivot sequence on ", DeviceName, " (", AssetClass, ")",
+        " | Discovery: ", tostring(BinCount), " LOLBins ", tostring(BinList),
+        " | Evasion: ", EvasionType,
+        " | Account: ", coalesce(DiscoveryAccount, EvasionAccount))
+| project DiscoveryTime, EvasionTime, DeviceName, AssetClass, SafetyCritical,
+          DiscoveryAccount, EvasionAccount, BinList, EvasionType, AlertDetail
+| order by DiscoveryTime desc
+
+// ==============================================================================================
+
+// BEH-LM-003 - Authenticated Boundary Crossing into CIP_Jump
+// Platform:   Microsoft Defender XDR (Custom Detection)
+// Frequency:  Every 15 minutes | Lookback: 4 hours
+// Functions:  Get_CIP_Jump_Hosts(), Get_CIP_Mgmt_Hosts(), Get_CIP_Accounts(),
+//             IsInMaintenanceWindow()
+// Watchlists: CIP_AuthBaseline (30-day account/device pairs)
+
+let JumpHosts   = Get_CIP_Jump_Hosts();
+let MgmtHosts   = Get_CIP_Mgmt_Hosts();
+let CIPAccounts = Get_CIP_Accounts();
+let PubFacing =
+    DeviceInfo
+    | where Timestamp > ago(1d)
+    | where DeviceTags has "PublicFacing"
+    | summarize arg_max(Timestamp, *) by DeviceName
+    | project SourceDevice = DeviceName, SourceIsPublic = true;
+let AuthBaseline =
+    externaldata (Account: string, TargetHost: string)
+    [@"https://.../CIP_AuthBaseline_exp.csv"]
+    with (format="csv", ignoreFirstRecord=true);
+DeviceLogonEvents
+| where Timestamp > ago(4h)
+| where ActionType == "LogonSuccess"
+| where LogonType in ("Network","RemoteInteractive")
+// Precondition 1: destination is a CIP_Jump host
+| join kind=inner JumpHosts on DeviceId
+// Precondition 2: source is NOT a CIP_Mgmt host
+| join kind=leftanti (MgmtHosts | project DeviceName)
+       on $left.RemoteDeviceName == $right.DeviceName
+// Precondition 3: account is NOT in the CIP AD group
+| join kind=leftanti CIPAccounts on $left.AccountName == $right.AccountName
+// Precondition 4: no 30-day baseline for this account/device pair
+| join kind=leftanti AuthBaseline
+       on $left.AccountName == $right.Account, $left.DeviceName == $right.TargetHost
+// Precondition 5: not inside an approved maintenance window
+| where IsInMaintenanceWindow(DeviceName, Timestamp) == false
+// Enrichment: tag the source device
+| join kind=leftouter PubFacing on $left.RemoteDeviceName == $right.SourceDevice
+| extend SourceTag = case(SourceIsPublic == true, "PublicFacing", "Untagged_IT")
+| extend AlertDetail = strcat(
+        "Boundary crossing: ", AccountName,
+        " -> CIP_Jump ", DeviceName,
+        " (", iff(SafetyCritical, "SafetyCritical", "Standard"), ")",
+        " from ", RemoteDeviceName, " (", SourceTag, ")",
+        " | Logon: ", LogonType)
+| project Timestamp, AccountName, DeviceName, RemoteDeviceName, RemoteIP,
+          LogonType, SourceTag, SafetyCritical, AlertDetail
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-PE-010 - Local Account / Persistence on CIP-Adjacent Host
+// Platform:  Microsoft Defender XDR (Custom Detection)
+// Frequency: Every 15 minutes | Lookback: 2 hours
+// Functions: Get_CIP_Jump_Hosts(), Get_CIP_Mgmt_Hosts(), IsInMaintenanceWindow()
+
+let CIP_Hosts =
+    union (Get_CIP_Jump_Hosts()), (Get_CIP_Mgmt_Hosts())
+    | project DeviceId, DeviceName, AssetClass,
+              SafetyCritical = DeviceTags has "SafetyCritical";
+// (A) Local account creation
+let LocalAcct =
+    DeviceEvents
+    | where Timestamp > ago(2h)
+    | where ActionType == "UserAccountCreated"
+    | join kind=inner CIP_Hosts on DeviceId
+    | extend Technique = "T1136.001-LocalAccount",
+             Artifact  = tostring(parse_json(AdditionalFields).TargetUser),
+             Actor     = coalesce(AccountName, InitiatingProcessAccountName)
+    | project Timestamp, DeviceName, AssetClass, SafetyCritical, Actor,
+              Technique, Artifact;
+// (B) Scheduled task creation
+let SchedTask =
+    DeviceProcessEvents
+    | where Timestamp > ago(2h)
+    | where FileName =~ "schtasks.exe"
+    | where ProcessCommandLine has_any ("/create","-create")
+    | join kind=inner CIP_Hosts on DeviceId
+    | extend Technique = "T1053.005-ScheduledTask",
+             Artifact  = ProcessCommandLine,
+             Actor     = coalesce(AccountName, InitiatingProcessAccountName)
+    | project Timestamp, DeviceName, AssetClass, SafetyCritical, Actor,
+              Technique, Artifact;
+// (C) Service installation
+let ServiceCreate =
+    DeviceProcessEvents
+    | where Timestamp > ago(2h)
+    | where FileName =~ "sc.exe"
+    | where ProcessCommandLine has "create"
+    | join kind=inner CIP_Hosts on DeviceId
+    | extend Technique = "T1543.003-WindowsService",
+             Artifact  = ProcessCommandLine,
+             Actor     = coalesce(AccountName, InitiatingProcessAccountName)
+    | project Timestamp, DeviceName, AssetClass, SafetyCritical, Actor,
+              Technique, Artifact;
+// (D) Run / RunOnce autostart key - was folded into (C) in the draft and never unioned
+let AutoRun =
+    DeviceRegistryEvents
+    | where Timestamp > ago(2h)
+    | where ActionType in~ ("RegistryValueSet","RegistryKeyCreated")
+    | where RegistryKey has_any (@"\CurrentVersion\Run", @"\CurrentVersion\RunOnce")
+    | join kind=inner CIP_Hosts on DeviceId
+    | extend Technique = "T1547.001-RunKey",
+             Artifact  = strcat(RegistryKey, @"\", RegistryValueName),
+             Actor     = InitiatingProcessAccountName
+    | project Timestamp, DeviceName, AssetClass, SafetyCritical, Actor,
+              Technique, Artifact;
+union LocalAcct, SchedTask, ServiceCreate, AutoRun
+| where IsInMaintenanceWindow(DeviceName, Timestamp) == false
+| extend AlertDetail = strcat(
+        Technique, " on CIP-adjacent ", DeviceName, " (", AssetClass, ")",
+        " | Account: ", Actor,
+        " | Artifact: ", substring(tostring(Artifact), 0, 200))
+| project Timestamp, DeviceName, AssetClass, SafetyCritical, AccountName = Actor,
+          Technique, Artifact, AlertDetail
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-CA-008 - Credential Harvesting Beyond MDE Native
+// Platform:  Microsoft Defender XDR (Custom Detection)
+// Frequency: Every 30 minutes | Lookback: 2 hours
+// Tables:    DeviceFileEvents, IdentityLogonEvents
+
+// (A) Browser credential store touched by a NON-browser process
+let BrowserCredFiles = dynamic([
+        @"\Google\Chrome\User Data\Default\Login Data",
+        @"\Microsoft\Edge\User Data\Default\Login Data",
+        @"\Mozilla\Firefox\Profiles\"]);
+let LegitBrowsers = dynamic(["chrome.exe","msedge.exe","firefox.exe","brave.exe"]);
+let BrowserCredAccess =
+    DeviceFileEvents
+    | where Timestamp > ago(2h)
+    // NOTE: DeviceFileEvents has no "FileRead" ActionType - the draft filtered it out
+    | where ActionType in~ ("FileCreated","FileModified","FileRenamed")
+    | where FolderPath has_any (BrowserCredFiles)
+         or FileName in~ ("logins.json","key4.db")
+    // v2 fix: the draft asserted the accessor WAS a browser, inverting the rule
+    | where not(InitiatingProcessFileName in~ (LegitBrowsers))
+    | extend Technique   = "T1555.003-BrowserCreds",
+             AlertDetail = strcat("Browser credential file accessed by ",
+                                  InitiatingProcessFileName, " on ", DeviceName)
+    | project Timestamp, DeviceName, AccountName = InitiatingProcessAccountName,
+              InitiatingProcessFileName, Technique, AlertDetail;
+// (B) DPAPI master key accessed by a process outside the expected set
+let DPAPIPath = @"\Microsoft\Protect\";
+let LegitDPAPIAccessors = dynamic(["lsass.exe","svchost.exe","explorer.exe",
+                                   "winlogon.exe","system"]);
+let DPAPIAccess =
+    DeviceFileEvents
+    | where Timestamp > ago(2h)
+    | where FolderPath has DPAPIPath
+    // v2 fix: same inversion as (A)
+    | where not(InitiatingProcessFileName in~ (LegitDPAPIAccessors))
+    | extend Technique   = "T1555.004-DPAPI",
+             AlertDetail = strcat("DPAPI master key accessed by ",
+                                  InitiatingProcessFileName, " on ", DeviceName)
+    | project Timestamp, DeviceName, AccountName = InitiatingProcessAccountName,
+              InitiatingProcessFileName, Technique, AlertDetail;
+// (C) Kerberoasting burst pattern
+let Kerberoasting =
+    IdentityLogonEvents
+    | where Timestamp > ago(2h)
+    | where ActionType == "Kerberos service ticket request"
+    | extend ServiceName = tostring(parse_json(AdditionalFields).ServiceName)
+    | where isnotempty(ServiceName)
+    // v2 fix: exclude krbtgt and host/ SPNs. The draft required BOTH prefixes at once,
+    // which no single value can satisfy - the leg returned nothing.
+    | where not(ServiceName startswith "krbtgt")
+    | where not(ServiceName startswith "host/")
+    | summarize SPNCount  = dcount(ServiceName),
+                SPNList   = make_set(ServiceName, 20),
+                FirstSeen = min(Timestamp)
+             by AccountName, TimeBin = bin(Timestamp, 5m)
+    | where SPNCount >= 10
+    | extend Timestamp   = FirstSeen,
+             DeviceName  = "DomainController",
+             InitiatingProcessFileName = "kerberos",
+             Technique   = "T1558.003-Kerberoasting",
+             AlertDetail = strcat("Kerberoasting: ", AccountName, " requested ",
+                                  tostring(SPNCount), " distinct SPNs in 5m")
+    | project Timestamp, DeviceName, AccountName, InitiatingProcessFileName,
+              Technique, AlertDetail;
+union BrowserCredAccess, DPAPIAccess, Kerberoasting
+| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName,
+          Technique, AlertDetail
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-CA-011 - Alternative Credential Dump Paths (VSS / NTDS / HIVE / LSASS)
+// Platform:   Microsoft Defender XDR Custom Detection | Sentinel-compatible
+// Frequency:  Every 1h | Lookback: 24h detection, 30d hunt
+// Tables:     DeviceProcessEvents, DeviceRegistryEvents
+// MITRE:      T1003, T1003.001, T1003.002, T1003.003, T1003.004, T1006, T1059.001
+// Supersedes: Phase 3b v1 (vssadmin + reg save + esentutl + comsvcs only)
+// Scope note: destructive shadow abuse (vssadmin/wmic delete shadows, T1490) is OUT of
+//             scope - this rule is credential access, not recovery inhibition.
+// Author: DD | Date: 2026-06-27
+
+let lookback  = 24h;                                    // hunt mode: 30d
+let ps_hosts  = dynamic(["powershell.exe","pwsh.exe"]);
+let copy_bins = dynamic(["cmd.exe","xcopy.exe","robocopy.exe","copy.exe"]);
+let proc_dumps =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | extend Cmd = tolower(ProcessCommandLine)
+    | extend ParentIsPS = InitiatingProcessFileName in~ (ps_hosts)
+    | extend DumpMethod = case(
+        // --- A. Shadow-copy creation --------------------------------------------
+        FileName =~ "vssadmin.exe" and Cmd has "create shadow",         "VSS:vssadmin",
+        FileName =~ "diskshadow.exe"
+            and (Cmd has_any ("create","expose","/s") or Cmd has_any (".dsh",".txt")),
+                                                                        "VSS:diskshadow",
+        FileName =~ "wbadmin.exe" and Cmd has "start backup",           "VSS:wbadmin",
+        FileName =~ "vshadow.exe"
+            and Cmd has_any ("-p","-nw","-script","-exec"),             "VSS:vshadow",
+        FileName =~ "wmic.exe"
+            and Cmd has "shadowcopy" and Cmd has "call create",         "VSS:wmic",
+        FileName in~ (ps_hosts)
+            and Cmd has "win32_shadowcopy" and Cmd has "create",        "VSS:powershell-cim",
+        FileName =~ "ntdsutil.exe" and Cmd has "snapshot",              "VSS:ntdsutil-snapshot",
+        // --- B. NTDS / registry-hive extraction ----------------------------------
+        FileName =~ "ntdsutil.exe"
+            and Cmd has_any ("ifm","create full","ac i ntds","activate instance ntds"),
+                                                                        "NTDS:ntdsutil-ifm",
+        FileName =~ "esentutl.exe"
+            and (Cmd has "/vss" or (Cmd has "/y" and Cmd has "ntds") or Cmd has "ntds.dit"),
+                                                                        "NTDS:esentutl-copy",
+        Cmd has "globalroot"
+            and Cmd has_any ("ntds.dit", @"\config\system", @"\config\security",
+                             @"\config\sam"),                           "NTDS:shadow-copy-out",
+        // PowerShell-native read/copy of the .dit - no VSS utility involved
+        FileName in~ (ps_hosts) and Cmd has "ntds.dit"
+            and Cmd has_any ("copy-item","get-content","[io.file]","::readallbytes",
+                             "::copy","set-content","move-item"),       "NTDS:powershell-copy",
+        // Offline .dit parsing (DSInternals) and raw-handle read (NinjaCopy)
+        Cmd has_any ("get-addbaccount","get-addbbackupkey","get-bootkey","dsinternals"),
+                                                                        "NTDS:dsinternals",
+        Cmd has "invoke-ninjacopy",                                     "NTDS:ninjacopy",
+        FileName in~ (copy_bins) and Cmd has "ntds.dit",                "NTDS:filecopy",
+        FileName =~ "reg.exe"
+            and Cmd has_any ("save","export") and Cmd has @"hklm\sam",  "HIVE:reg-save-SAM",
+        FileName =~ "reg.exe"
+            and Cmd has_any ("save","export")
+            and Cmd has @"hklm\security",                               "HIVE:reg-save-SECURITY",
+        FileName =~ "reg.exe"
+            and Cmd has_any ("save","export") and Cmd has @"hklm\system",
+                                                                        "HIVE:reg-save-SYSTEM",
+        // --- C. LSASS memory dump -------------------------------------------------
+        FileName =~ "rundll32.exe" and Cmd has "comsvcs.dll"
+            and Cmd has_any ("minidump","#24","#+24","# 24"),           "LSASS:comsvcs",
+        FileName has_any ("procdump","procdump64") and Cmd has "lsass", "LSASS:procdump",
+        FileName =~ "createdump.exe" and Cmd has_any ("lsass","-f"),    "LSASS:createdump",
+        FileName =~ "sqldumper.exe"
+            and Cmd has_any ("lsass","0x01100","0x0110","-f"),          "LSASS:sqldumper",
+        FileName =~ "rdrleakdiag.exe" and Cmd has "fullmemdmp",         "LSASS:rdrleakdiag",
+        FileName =~ "werfault.exe" and Cmd has "lsass",                 "LSASS:werfault",
+        FileName has_any ("nanodump","dumpert","mimikatz","lsassy","handlekatz",
+                          "forkdump","malseclogon","pypykatz"),         "LSASS:known-tool",
+        // Handle duplication - steal an existing lsass handle instead of opening one
+        Cmd has_any ("--dup","--handle","--fork","duplicatehandle") and Cmd has "lsass",
+                                                                        "LSASS:handle-dup",
+        // .NET reflection reaching MiniDumpWriteDump in dbghelp/dbgcore
+        FileName in~ (ps_hosts)
+            and Cmd has_any ("minidumpwritedump","dbghelp.dll","dbgcore.dll")
+            and Cmd has_any ("add-type","dllimport","getdelegateforfunctionpointer",
+                             "reflection.emit","[reflection.assembly]","getprocaddress",
+                             "system.runtime.interopservices"),         "LSASS:dotnet-reflection",
+        FileName in~ (ps_hosts)
+            and Cmd has_any ("out-minidump","minidumpwritedump"),       "LSASS:ps-minidump",
+        // Inline C#/VB compilation hosted by PowerShell - hunt-grade signal only
+        ParentIsPS and FileName in~ ("csc.exe","vbc.exe"),              "LSASS:inline-compile",
+        "Other")
+    | where DumpMethod != "Other"
+    | extend Category = tostring(split(DumpMethod, ":")[0])
+    | extend Technique = case(
+        Category == "VSS",                                      "T1003.003 / T1006",
+        Category == "NTDS",                                     "T1003.003",
+        Category == "HIVE" and DumpMethod endswith "SAM",       "T1003.002",
+        Category == "HIVE" and DumpMethod endswith "SECURITY",  "T1003.004",
+        Category == "HIVE",                                     "T1003.002 (SYSTEM boot key)",
+        Category == "LSASS",                                    "T1003.001",
+                                                                "T1003")
+    | extend Severity = case(
+        DumpMethod == "LSASS:inline-compile",                   "Medium",
+        Category in ("NTDS","LSASS","HIVE"),                    "High",
+        Category == "VSS" and Cmd has "ntds",                   "High",
+                                                                "Medium")
+    | extend Phase = "CredAccess-AltDump"
+    | project Timestamp, DeviceName, AccountName, Category, DumpMethod, Technique, Severity,
+              FileName, Evidence = ProcessCommandLine,
+              InitiatingProcessFileName, InitiatingProcessCommandLine, Phase;
+// Registry corroboration: the same shadow-copy utilities leave a VSS footprint in the
+// registry (mirrors 05e). Fires even when the command line is obfuscated or the
+// process event is missed - process and registry layers reinforce each other.
+let vss_registry =
+    DeviceRegistryEvents
+    | where Timestamp > ago(lookback)
+    | where RegistryKey has_any (@"\Services\VSS\Diag", @"\Services\VSS\Settings",
+                                 @"\Microsoft\Windows NT\CurrentVersion\Diagnostics\VSS")
+    | where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+    | where InitiatingProcessFileName in~ ("cmd.exe","powershell.exe","pwsh.exe","wmic.exe",
+                                           "ntdsutil.exe","diskshadow.exe","vssadmin.exe",
+                                           "esentutl.exe","wbadmin.exe","vshadow.exe")
+    | extend Category    = "VSS",
+             DumpMethod  = strcat("VSS-registry:", tolower(InitiatingProcessFileName)),
+             Technique   = "T1003.003 / T1006",
+             Severity    = "Medium",
+             Phase       = "CredAccess-AltDump",
+             AccountName = InitiatingProcessAccountName,
+             FileName    = InitiatingProcessFileName,
+             Evidence    = RegistryKey
+    | project Timestamp, DeviceName, AccountName, Category, DumpMethod, Technique, Severity,
+              FileName, Evidence,
+              InitiatingProcessFileName, InitiatingProcessCommandLine, Phase;
+union proc_dumps, vss_registry
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-CA-012 - NTDS Database Path / Diagnostics Registry Tampering
+// Platform:  Microsoft Defender XDR Custom Detection
+// Frequency: Every 1h | Lookback: 24h detection, 30d hunt
+// Tables:    DeviceRegistryEvents
+// MITRE:     T1003.003 (NTDS), T1112 (Modify Registry)
+// Corroborates the process/file ntdsutil detection (v1 04/05/06) from the registry side.
+// An NTDS database or working-directory pointer that suddenly references Temp/Public or
+// any non-default path is a strong tampering signal on a steady-state DC.
+// Author: DD | Date: 2026-06-27
+
+let lookback = 24h;                                     // hunt mode: 30d
+let pointer_values = dynamic(["DSA Database file","Database log files path",
+                              "DSA Working Directory","Database backup path",
+                              "DSA Database Epoch"]);
+let staging_paths  = dynamic([@"\temp\", @"\public\", @"\users\", @"\perflogs\",
+                              @"\windows\tasks\", @"\programdata\", @"\$recycle.bin\"]);
+DeviceRegistryEvents
+| where Timestamp > ago(lookback)
+| where RegistryKey has_any (@"\Services\NTDS\Parameters", @"\Services\NTDS\Diagnostics")
+| where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+// The pointer values that matter, plus any data landing in an operator staging path
+| extend IsPathPointer  = RegistryValueName in~ (pointer_values)
+| extend SuspiciousData = tolower(RegistryValueData) has_any (staging_paths)
+                          or tolower(RegistryValueData) has_any (".dit","ntds.dit")
+| extend NonDefaultPath = IsPathPointer
+                          and isnotempty(RegistryValueData)
+                          and not(tolower(RegistryValueData) startswith @"c:\windows\ntds")
+| extend DiagVerbosity  = RegistryKey has @"\Services\NTDS\Diagnostics"
+                          and RegistryValueData !in ("0","0x00000000","")
+| where IsPathPointer or SuspiciousData or DiagVerbosity
+| extend Severity = case(
+    NonDefaultPath,  "High",
+    SuspiciousData,  "High",
+    DiagVerbosity,   "Medium",
+                     "Low")
+| extend Technique = "T1003.003 / T1112"
+| extend Phase     = "CredAccess-NTDS-Registry"
+| project Timestamp, DeviceName, Severity, Technique, ActionType, RegistryKey,
+          RegistryValueName, RegistryValueData, PreviousRegistryValueData,
+          IsPathPointer, SuspiciousData, NonDefaultPath, DiagVerbosity,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-CA-013 - LSASS Credential Exposure and Protection Downgrade (registry enablers)
+// Platform:  Microsoft Defender XDR Custom Detection
+// Frequency: Every 1h | Lookback: 24h detection, 30d hunt
+// Tables:    DeviceRegistryEvents
+// MITRE:     T1112, T1003.001, T1547.005, T1556.002, T1562.001
+// The registry-side companion to the LSASS handle-access rule (05c). Rather than dumping
+// LSASS, an operator can (a) force plaintext credentials INTO LSASS, (b) turn OFF the
+// protection that stops dumping, or (c) load a credential-harvesting DLL INTO LSASS.
+// All three are registry-observable BEFORE the theft - high-value early warning.
+// Author: DD | Date: 2026-06-27
+
+let lookback = 24h;                                     // hunt mode: 30d
+let on  = dynamic(["1","0x00000001"]);
+let off = dynamic(["0","0x00000000"]);                  // v2 fix: v1 had "1" in the off set
+let weak_lmcompat = dynamic(["0","1","2","0x00000000","0x00000001","0x00000002"]);
+DeviceRegistryEvents
+| where Timestamp > ago(lookback)
+| where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+| extend TamperAction = case(
+    // (a) Force reversible / plaintext credentials to be cached in LSASS
+    RegistryKey has @"\SecurityProviders\WDigest"
+        and RegistryValueName =~ "UseLogonCredential"
+        and RegistryValueData in (on),                      "WDigest-PlaintextEnabled",
+    RegistryKey has @"\Control\Lsa"
+        and RegistryValueName =~ "LmCompatibilityLevel"
+        and RegistryValueData in (weak_lmcompat),           "LmCompat-Weakened",
+    RegistryKey has @"\Control\Lsa"
+        and RegistryValueName =~ "NoLmHash"
+        and RegistryValueData in (on),                      "NoLmHash-Disabled",
+    // (b) Disable the protection that keeps user-mode tools out of LSASS
+    RegistryKey has @"\Control\Lsa"
+        and RegistryValueName =~ "RunAsPPL"
+        and RegistryValueData in (off),                     "LSAProtection-Disabled",
+    RegistryKey has @"\Control\Lsa"
+        and RegistryValueName =~ "RunAsPPLBoot"
+        and RegistryValueData in (off),                     "LSAProtectionBoot-Disabled",
+    RegistryKey has_any (@"\Control\Lsa", @"\DeviceGuard")
+        and RegistryValueName =~ "LsaCfgFlags"
+        and RegistryValueData in (off),                     "CredentialGuard-Disabled",
+    RegistryKey has @"\DeviceGuard"
+        and RegistryValueName =~ "EnableVirtualizationBasedSecurity"
+        and RegistryValueData in (off),                     "VBS-Disabled",
+    // (c) Load attacker code into LSASS: SSP / AP injection and password filter DLL
+    RegistryKey has_any (@"\Control\Lsa", @"\Control\Lsa\OSConfig")
+        and RegistryValueName in~ ("Security Packages","Authentication Packages"),
+                                                            "SSP-PackageAdded",
+    RegistryKey has @"\Control\Lsa"
+        and RegistryValueName =~ "Notification Packages",   "PasswordFilter-Added",
+    "Other")
+| where TamperAction != "Other"
+// For SSP / password-filter packages, surface what was ADDED vs the prior value
+| extend PkgNew = split(tolower(replace_string(RegistryValueData, "\r\n", " ")), " ")
+| extend PkgOld = split(tolower(replace_string(
+                        coalesce(PreviousRegistryValueData, ""), "\r\n", " ")), " ")
+| extend AddedPackages = iff(
+        TamperAction in ("SSP-PackageAdded","PasswordFilter-Added"),
+        set_difference(PkgNew, PkgOld, dynamic([""])),
+        dynamic([]))
+| where TamperAction !in ("SSP-PackageAdded","PasswordFilter-Added")
+     or array_length(AddedPackages) > 0
+| extend Severity = case(
+    TamperAction in ("SSP-PackageAdded","PasswordFilter-Added"),         "Critical",
+    TamperAction in ("WDigest-PlaintextEnabled","LSAProtection-Disabled",
+                     "LSAProtectionBoot-Disabled","CredentialGuard-Disabled",
+                     "VBS-Disabled"),                                    "High",
+                                                                         "Medium")
+// GPO / svchost under SYSTEM sets these during policy apply - weight non-SYSTEM higher
+| extend AuthoredBySystem = InitiatingProcessAccountName in~ ("system","local system")
+                            and InitiatingProcessFileName in~ ("svchost.exe","services.exe",
+                                                               "gpscript.exe")
+| extend Phase = "CredAccess-LSASS-RegistryEnabler"
+| project Timestamp, DeviceName, Severity, TamperAction, RegistryKey, RegistryValueName,
+          RegistryValueData, PreviousRegistryValueData, AddedPackages, AuthoredBySystem,
+          InitiatingProcessFileName, InitiatingProcessCommandLine,
+          InitiatingProcessAccountName, Phase
+| order by Timestamp desc
+
+// ==============================================================================================
+
+// BEH-C2-014 - netsh PortProxy Relay (process + registry)
+// Platform:  Microsoft Defender XDR Custom Detection
+// Frequency: Every 15m | Lookback: 24h detection, 30d hunt
+// Tables:    DeviceProcessEvents, DeviceRegistryEvents
+// MITRE:     T1090.001 (Internal Proxy), T1112 (Modify Registry)
+// netsh portproxy turns the compromised host into a TCP relay without dropping malware.
+// This is the move that defines Volt Typhoon. Promote to P1 when ConnectAddress lands in
+// CIP / OT address space. Registry leg fires even when the command line is obfuscated.
+// Author: detection pack maintainers | Date: 2026-05-21 (v2: 2026-08-15)
+
+let lookback = 24h;                                     // hunt mode: 30d
+// netsh resolves any unique prefix: "netsh i p a v4tov4 ..." == the full command
+let netsh_pp = @"\bnetsh(\.exe)?\s+i\w*\s+p\w*\s+(a|add|s|set|d|del|sh|show|res)";
+let portproxy_proc =
+    DeviceProcessEvents
+    | where Timestamp > ago(lookback)
+    | where FileName =~ "netsh.exe"
+    | extend Cmd = tolower(ProcessCommandLine)
+    // netsh resolves any unique prefix, so "netsh i p a v4tov4 ..." is the same command
+    // as "netsh interface portproxy add v4tov4 ...". Match the abbreviated form too.
+    | where Cmd has "portproxy"
+         or Cmd has_any ("v4tov4","v4tov6","v6tov4","v6tov6")
+         or Cmd matches regex netsh_pp
+    | extend SubCommand = case(
+        Cmd has_any (" add "," a "),                            "ProxyCreated",
+        Cmd has_any (" set "," s "),                            "ProxyModified",
+        Cmd has_any (" delete "," del "," d "),                 "ProxyDeleted",
+        Cmd has_any (" show "," sh "),                          "ProxyEnumerated",
+        Cmd has "reset",                                        "ProxyReset",
+                                                                "Other")
+    | extend MapType     = extract(@"(v[46]tov[46])", 1, Cmd),
+             ListenAddr  = extract(@"listenaddress\s*=\s*([^\s]+)", 1, Cmd),
+             ListenPort  = extract(@"listenport\s*=\s*(\d+)", 1, Cmd),
+             ConnectAddr = extract(@"connectaddress\s*=\s*([^\s]+)", 1, Cmd),
+             ConnectPort = extract(@"connectport\s*=\s*(\d+)", 1, Cmd)
+    | extend Source    = "Process",
+             Technique = "T1090.001",
+             Severity  = iff(SubCommand in ("ProxyCreated","ProxyModified"), "High", "Medium"),
+             Phase     = "C2-PortProxy"
+    | project Timestamp, DeviceName, AccountName, Source, SubCommand, Severity, Technique,
+              MapType, ListenAddr, ListenPort, ConnectAddr, ConnectPort,
+              Evidence = ProcessCommandLine,
+              InitiatingProcessFileName, InitiatingProcessCommandLine, Phase;
+// Registry persistence. Value name is <listenaddress>/<listenport>, value data is
+// <connectaddress>/<connectport>. Covers all four address-family maps, not just v4tov4.
+let portproxy_reg =
+    DeviceRegistryEvents
+    | where Timestamp > ago(lookback)
+    | where RegistryKey has @"\Services\PortProxy"
+    | where ActionType in ("RegistryValueSet","RegistryKeyCreated")
+    | extend MapType     = extract(@"PortProxy\\(v[46]tov[46])", 1, RegistryKey),
+             ListenAddr  = tostring(split(RegistryValueName, "/")[0]),
+             ListenPort  = extract(@"/(\d+)\s*$", 1, RegistryValueName),
+             ConnectAddr = tostring(split(RegistryValueData, "/")[0]),
+             ConnectPort = extract(@"/(\d+)\s*$", 1, RegistryValueData)
+    | extend Source      = "Registry",
+             SubCommand  = "ProxyPersisted",
+             Severity    = "High",
+             Technique   = "T1090.001 / T1112",
+             Phase       = "C2-PortProxy-Registry",
+             AccountName = InitiatingProcessAccountName
+    | project Timestamp, DeviceName, AccountName, Source, SubCommand, Severity, Technique,
+              MapType, ListenAddr, ListenPort, ConnectAddr, ConnectPort,
+              Evidence = RegistryKey,
+              InitiatingProcessFileName, InitiatingProcessCommandLine, Phase;
+union portproxy_proc, portproxy_reg
+| order by Timestamp desc
